@@ -56,8 +56,8 @@ newtype DummyInterpreter a = DummyInterpreter (Identity a)
 runDummy :: DummyInterpreter a -> a
 runDummy (DummyInterpreter a) = runIdentity a
 
-type DummyVar = Variable DummyInterpreter Identity
-type DummyRasterVar = Variable DummyInterpreter Identity RasterT
+type DummyVar = Variable DummyInterpreter 
+type DummyRasterVar = Variable DummyInterpreter RasterT
 
 dummyRasterInput
   :: AST.IsRasterInput DummyInterpreter crs dim a
@@ -75,6 +75,7 @@ dummyRasterInput desc res f d = AST.RasterInput
 data DummyBand crs a = DummyBand
   { dummyDescription :: Description
   }
+type instance AST.Exp DummyInterpreter = Identity
 type instance AST.RasterBand DummyInterpreter crs a = DummyBand crs a
 
 instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a

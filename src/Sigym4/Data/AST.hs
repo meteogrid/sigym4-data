@@ -49,7 +49,6 @@ data VariableType
 --
 data Variable
   (m :: * -> *)
-  (exp :: * -> *)
   (t :: VariableType)
   crs
   dim
@@ -73,7 +72,7 @@ data Variable
        , rDimension   :: dim
        , rDescription :: Description
        }
-    -> Variable m exp RasterT crs dim a
+    -> Variable m RasterT crs dim a
 
 
   -- | Una variable de entrada de puntos
@@ -92,7 +91,7 @@ data Variable
        , pDimension   :: dim
        , pDescription :: Description
        }
-    -> Variable m exp PointT crs dim a
+    -> Variable m PointT crs dim a
 
   -- | Una variable de entrada de areas
   AreaInput 
@@ -109,7 +108,7 @@ data Variable
        , aDimension   :: dim
        , aDescription :: Description
        }
-    -> Variable m exp AreaT crs dim a
+    -> Variable m AreaT crs dim a
 
 
   -- | Una variable que solo depende de la dimension
@@ -120,15 +119,15 @@ data Variable
        )
     => WithFingerprint (DimensionIx dim -> a)
     -> dim
-    -> Variable m exp t crs dim a
+    -> Variable m t crs dim a
 
 
   -- | Escoge la primera variable que no de error de carga
   (:<|>)
     :: Dimension dim
-    => Variable m exp t crs dim a
-    -> Variable m exp t crs dim a
-    -> Variable m exp t crs dim a
+    => Variable m t crs dim a
+    -> Variable m t crs dim a
+    -> Variable m t crs dim a
 
   -- | Reproyecta una entrada.
   --
@@ -139,12 +138,12 @@ data Variable
   Warp
     :: ( KnownCrs crs
        , KnownCrs crs'
-       , Warpable m exp t a
-       , Typeable (Variable m exp t crs' dim a)
+       , Warpable m t a
+       , Typeable (Variable m t crs' dim a)
        )
-    => WarpSettings m exp t          a
-    -> Variable     m exp t crs' dim a
-    -> Variable     m exp t crs  dim a
+    => WarpSettings m t          a
+    -> Variable     m t crs' dim a
+    -> Variable     m t crs  dim a
 
 
   -- | Interpola una variable de punto y produce una de raster.
@@ -154,12 +153,12 @@ data Variable
   Grid
     :: ( KnownCrs crs
        , KnownCrs crs'
-       , Griddable m exp t' a
-       , Typeable (Variable m exp t' crs' dim a)
+       , Griddable m t' a
+       , Typeable (Variable m t' crs' dim a)
        )
-    => GridSettings  m exp t'               a
-    -> Variable      m exp t'      crs' dim a
-    -> Variable      m exp RasterT crs  dim a
+    => GridSettings  m t'               a
+    -> Variable      m t'      crs' dim a
+    -> Variable      m RasterT crs  dim a
   
   -- | Convierte una variable "Rasterizable" en una raster
   --
@@ -167,12 +166,12 @@ data Variable
   Rasterize
     :: ( KnownCrs crs
        , KnownCrs crs'
-       , Rasterizable m exp t' a
-       , Typeable (Variable m exp t' crs' dim a)
+       , Rasterizable m t' a
+       , Typeable (Variable m t' crs' dim a)
        )
-    => RasterizeSettings  m exp t'               a
-    -> Variable           m exp t'      crs' dim a
-    -> Variable           m exp RasterT crs  dim a
+    => RasterizeSettings  m t'               a
+    -> Variable           m t'      crs' dim a
+    -> Variable           m RasterT crs  dim a
 
 
   -- | Sample
@@ -185,13 +184,13 @@ data Variable
   Sample
     :: ( KnownCrs crs
        , KnownCrs crs'
-       , Sampleable m exp t' a
-       , Typeable (Variable m exp t' crs' dim a)
+       , Sampleable m t' a
+       , Typeable (Variable m t' crs' dim a)
        )
-    => SampleSettings       m exp t'                a
-    -> Variable             m exp PointT   crs  dim any
-    -> Variable             m exp t'       crs' dim a
-    -> Variable             m exp PointT   crs  dim a
+    => SampleSettings       m t'                a
+    -> Variable             m PointT   crs  dim any
+    -> Variable             m t'       crs' dim a
+    -> Variable             m PointT   crs  dim a
   
 
   --
@@ -204,13 +203,13 @@ data Variable
   Aggregate
     :: ( KnownCrs crs
        , KnownCrs crs'
-       , Aggregable m exp t' a
-       , Typeable (Variable m exp t' crs' dim a)
+       , Aggregable m t' a
+       , Typeable (Variable m t' crs' dim a)
        )
-    => AggregateSettings m exp t'               a
-    -> Variable          m exp AreaT   crs  dim any
-    -> Variable          m exp t'      crs' dim a
-    -> Variable          m exp AreaT   crs  dim a
+    => AggregateSettings m t'               a
+    -> Variable          m AreaT   crs  dim any
+    -> Variable          m t'      crs' dim a
+    -> Variable          m AreaT   crs  dim a
     
   
 
@@ -223,13 +222,13 @@ data Variable
     ( Dimension dim
     , Dimension dim'
     , Show dim
-    , Typeable (Variable m exp t crs dim' a)
+    , Typeable (Variable m t crs dim' a)
     --, DimensionIx dim' ~  DimensionIx dim
     )
     => dim
     -> WithFingerprint (dim' -> DimensionIx dim -> NonEmpty (DimensionIx dim'))
-    -> Variable m exp t crs dim' a
-    -> Variable m exp t crs dim  a
+    -> Variable m t crs dim' a
+    -> Variable m t crs dim  a
 
 
   -- | Indica al interprete que se esfuerze en cachear una variable
@@ -245,27 +244,27 @@ data Variable
     ( Dimension dim
     )
     => (DimensionIx dim -> Bool)
-    -> Variable m exp t crs dim a
-    -> Variable m exp t crs dim a
+    -> Variable m t crs dim a
+    -> Variable m t crs dim a
 
   -- | Asigna una descripcion a una variable
   --
   Describe ::
        Description
-    -> Variable m exp t crs dim a
-    -> Variable m exp t crs dim a
+    -> Variable m t crs dim a
+    -> Variable m t crs dim a
 
 
   -- | Aplica una funcion unaria
   Map
     :: ( HasUnits b
-       , Typeable (Variable m exp t crs dim b)
+       , Typeable (Variable m t crs dim b)
        )
-    => WithFingerprint (exp b -> exp a)
-    -> Variable m exp t crs dim b
-    -> Variable m exp t crs dim a
+    => WithFingerprint (Exp m b -> Exp m a)
+    -> Variable m t crs dim b
+    -> Variable m t crs dim a
 
-deriving instance Typeable (Variable m exp t crs dim a)
+deriving instance Typeable (Variable m t crs dim a)
 
 class HasFingerprint o where
   fingerprint :: o -> Fingerprint
@@ -307,116 +306,116 @@ data LoadError
 
 
 
-class ( HasFingerprint (WarpSettings m exp t a)
-      , Default (WarpSettings m exp t a)
-      , Show (WarpSettings m exp t a)
-      ) => Warpable m exp t a where
-  type WarpSettings m exp t a :: *
+class ( HasFingerprint (WarpSettings m t a)
+      , Default (WarpSettings m t a)
+      , Show (WarpSettings m t a)
+      ) => Warpable m t a where
+  type WarpSettings m t a :: *
   doWarp :: (KnownCrs crs', KnownCrs crs)
-         => WarpSettings m exp t          a
-         -> Variable     m exp t crs' dim a
-         -> Variable     m exp t crs  dim a
+         => WarpSettings m t          a
+         -> Variable     m t crs' dim a
+         -> Variable     m t crs  dim a
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "No hay implementacion para resamplear " ':$$:
                'Text "este tipo de Variables")
-  , Default (WarpSettings m exp t a)
-  , HasFingerprint (WarpSettings m exp t a)
-  , Show (WarpSettings m exp t a)
-  ) => Warpable m exp t a where
-  type WarpSettings m exp t a = ()
+  , Default (WarpSettings m t a)
+  , HasFingerprint (WarpSettings m t a)
+  , Show (WarpSettings m t a)
+  ) => Warpable m t a where
+  type WarpSettings m t a = ()
   doWarp = error "unreachable"
 
 
 
-class ( HasFingerprint (RasterizeSettings m exp t a)
-      , Default (RasterizeSettings m exp t a)
-      , Show (RasterizeSettings m exp t a)
-      ) => Rasterizable m exp t a where
-  type RasterizeSettings m exp t a :: *
+class ( HasFingerprint (RasterizeSettings m t a)
+      , Default (RasterizeSettings m t a)
+      , Show (RasterizeSettings m t a)
+      ) => Rasterizable m t a where
+  type RasterizeSettings m t a :: *
   doRasterize :: (KnownCrs crs', KnownCrs crs)
-              => RasterizeSettings m exp t                a
-              -> Variable          m exp t       crs' dim a
-              -> Variable          m exp RasterT crs  dim a
+              => RasterizeSettings m t                a
+              -> Variable          m t       crs' dim a
+              -> Variable          m RasterT crs  dim a
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "No hay implementacion para rasterizar " ':$$:
                'Text "este tipo de Variables")
-  , Default (RasterizeSettings m exp t a)
-  , HasFingerprint (RasterizeSettings m exp t a)
-  , Show (RasterizeSettings m exp t a)
-  ) => Rasterizable m exp t a where
-  type RasterizeSettings m exp t a = ()
+  , Default (RasterizeSettings m t a)
+  , HasFingerprint (RasterizeSettings m t a)
+  , Show (RasterizeSettings m t a)
+  ) => Rasterizable m t a where
+  type RasterizeSettings m t a = ()
   doRasterize = error "unreachable"
 
 
 
-class ( HasFingerprint (GridSettings m exp t a)
-      , Default (GridSettings m exp t a)
-      , Show (GridSettings m exp t a)
-      ) => Griddable m exp t a where
-  type GridSettings m exp t a :: *
+class ( HasFingerprint (GridSettings m t a)
+      , Default (GridSettings m t a)
+      , Show (GridSettings m t a)
+      ) => Griddable m t a where
+  type GridSettings m t a :: *
   doGrid :: (KnownCrs crs', KnownCrs crs)
-         => GridSettings m exp t                a
-         -> Variable     m exp t       crs' dim a
-         -> Variable     m exp RasterT crs  dim a
+         => GridSettings m t                a
+         -> Variable     m t       crs' dim a
+         -> Variable     m RasterT crs  dim a
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "No hay implementacion para interpolar " ':$$:
                'Text "este tipo de Variables")
-  , Default (GridSettings m exp t a)
-  , HasFingerprint (GridSettings m exp t a)
-  , Show (GridSettings m exp t a)
-  ) => Griddable m exp t a where
-  type GridSettings m exp t a = ()
+  , Default (GridSettings m t a)
+  , HasFingerprint (GridSettings m t a)
+  , Show (GridSettings m t a)
+  ) => Griddable m t a where
+  type GridSettings m t a = ()
   doGrid = error "unreachable"
 
 
 
 
-class ( HasFingerprint (SampleSettings m exp t a)
-      , Default (SampleSettings m exp t a)
-      , Show (SampleSettings m exp t a)
-      ) => Sampleable m exp t a where
-  type SampleSettings m exp t a :: *
+class ( HasFingerprint (SampleSettings m t a)
+      , Default (SampleSettings m t a)
+      , Show (SampleSettings m t a)
+      ) => Sampleable m t a where
+  type SampleSettings m t a :: *
   doSample :: (KnownCrs crs', KnownCrs crs)
-           => SampleSettings m exp t               a
-           -> Variable       m exp PointT crs  dim any
-           -> Variable       m exp t      crs' dim a
-           -> Variable       m exp PointT crs  dim a
+           => SampleSettings m t               a
+           -> Variable       m PointT crs  dim any
+           -> Variable       m t      crs' dim a
+           -> Variable       m PointT crs  dim a
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "No hay implementacion para interpolar " ':$$:
                'Text "este tipo de Variables")
-  , Default (SampleSettings m exp t a)
-  , HasFingerprint (SampleSettings m exp t a)
-  , Show (SampleSettings m exp t a)
-  ) => Sampleable m exp t a where
-  type SampleSettings m exp t a = ()
+  , Default (SampleSettings m t a)
+  , HasFingerprint (SampleSettings m t a)
+  , Show (SampleSettings m t a)
+  ) => Sampleable m t a where
+  type SampleSettings m t a = ()
   doSample = error "unreachable"
 
 
 
 
-class ( HasFingerprint (AggregateSettings m exp t a)
-      , Default (AggregateSettings m exp t a)
-      , Show (AggregateSettings m exp t a)
-      ) => Aggregable m exp t a where
-  type AggregateSettings m exp t a :: *
+class ( HasFingerprint (AggregateSettings m t a)
+      , Default (AggregateSettings m t a)
+      , Show (AggregateSettings m t a)
+      ) => Aggregable m t a where
+  type AggregateSettings m t a :: *
   doAggregate :: (KnownCrs crs', KnownCrs crs)
-              => AggregateSettings m exp t              a
-              -> Variable          m exp AreaT crs  dim any
-              -> Variable          m exp t     crs' dim a
-              -> Variable          m exp AreaT crs  dim a
+              => AggregateSettings m t              a
+              -> Variable          m AreaT crs  dim any
+              -> Variable          m t     crs' dim a
+              -> Variable          m AreaT crs  dim a
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "No hay implementacion para agregar  " ':$$:
                'Text "este tipo de Variables")
-  , Default (AggregateSettings m exp t a)
-  , HasFingerprint (AggregateSettings m exp t a)
-  , Show (AggregateSettings m exp t a)
-  ) => Aggregable m exp t a where
-  type AggregateSettings m exp t a = ()
+  , Default (AggregateSettings m t a)
+  , HasFingerprint (AggregateSettings m t a)
+  , Show (AggregateSettings m t a)
+  ) => Aggregable m t a where
+  type AggregateSettings m t a = ()
   doAggregate = error "unreachable"
 
 type IsRasterInput m crs dim a =

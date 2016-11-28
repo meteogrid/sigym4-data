@@ -64,16 +64,16 @@ adaptDim
   :: ( Dimension from
      , Dimension to
      , Show to
-     , Typeable (Variable m exp t crs from a)
+     , Typeable (Variable m t crs from a)
      )
   => to
   -> WithFingerprint (from -> DimensionIx to -> NonEmpty (DimensionIx from))
-  -> Variable m exp t crs from a
-  -> Variable m exp t crs to a
+  -> Variable m t crs from a
+  -> Variable m t crs to a
 adaptDim = AdaptDim
 
 -- | Es una Variable una entrada que no sabemos generar?
-isInput :: Variable m exp t crs to a -> Bool
+isInput :: Variable m t crs to a -> Bool
 isInput RasterInput{}        = True
 isInput PointInput{}         = True
 isInput AreaInput{}          = True
@@ -81,14 +81,14 @@ isInput DimensionDependant{} = True
 isInput _             = False
 
 -- | Es una Variable una derivada?
-isDerived :: Variable m exp t crs to a -> Bool
+isDerived :: Variable m t crs to a -> Bool
 isDerived = not . isInput
 
 -- | Una variable que solo depende de la dimension
 ofDimension
   :: (HasFingerprint (DimensionIx dim), Dimension dim, Show dim)
   => WithFingerprint (DimensionIx dim -> a) -> dim
-  -> Variable m exp t crs dim a
+  -> Variable m t crs dim a
 ofDimension = DimensionDependant
 
 -- | Reproyecta una entrada.
@@ -100,12 +100,12 @@ ofDimension = DimensionDependant
 warp
   :: ( KnownCrs crs
      , KnownCrs crs'
-     , Warpable m exp t a
-     , Typeable (Variable m exp t crs' dim a)
+     , Warpable m t a
+     , Typeable (Variable m t crs' dim a)
      )
-  => WarpSettings m exp t          a
-  -> Variable     m exp t crs' dim a
-  -> Variable     m exp t crs  dim a
+  => WarpSettings m t          a
+  -> Variable     m t crs' dim a
+  -> Variable     m t crs  dim a
 warp = Warp
   
 -- | Interpola una variable de punto y produce una de raster.
@@ -115,12 +115,12 @@ warp = Warp
 grid
   :: ( KnownCrs crs
      , KnownCrs crs'
-     , Griddable m exp t a
-     , Typeable (Variable m exp t crs' dim a)
+     , Griddable m t a
+     , Typeable (Variable m t crs' dim a)
      )
-  => GridSettings  m exp t                a
-  -> Variable      m exp t       crs' dim a
-  -> Variable      m exp RasterT crs  dim a
+  => GridSettings  m t                a
+  -> Variable      m t       crs' dim a
+  -> Variable      m RasterT crs  dim a
 grid = Grid
 
 -- | Convierte una variable "Rasterizable" en una raster
@@ -129,12 +129,12 @@ grid = Grid
 rasterize
   :: ( KnownCrs crs
      , KnownCrs crs'
-     , Rasterizable m exp t a
-     , Typeable (Variable m exp t crs' dim a)
+     , Rasterizable m t a
+     , Typeable (Variable m t crs' dim a)
      )
-  => RasterizeSettings  m exp t                a
-  -> Variable           m exp t       crs' dim a
-  -> Variable           m exp RasterT crs  dim a
+  => RasterizeSettings  m t                a
+  -> Variable           m t       crs' dim a
+  -> Variable           m RasterT crs  dim a
 rasterize = Rasterize
 
 
@@ -147,13 +147,13 @@ rasterize = Rasterize
 sample
   :: ( KnownCrs crs
      , KnownCrs crs'
-     , Sampleable m exp t a
-     , Typeable (Variable m exp t crs' dim a)
+     , Sampleable m t a
+     , Typeable (Variable m t crs' dim a)
      )
-  => SampleSettings       m exp t                 a
-  -> Variable             m exp PointT   crs  dim any
-  -> Variable             m exp t        crs' dim a
-  -> Variable             m exp PointT   crs  dim a
+  => SampleSettings       m t                 a
+  -> Variable             m PointT   crs  dim any
+  -> Variable             m t        crs' dim a
+  -> Variable             m PointT   crs  dim a
 sample = Sample
 
 
@@ -165,23 +165,23 @@ sample = Sample
 aggregate
   :: ( KnownCrs crs
      , KnownCrs crs'
-     , Aggregable m exp t a
-     , Typeable (Variable m exp t crs' dim a)
+     , Aggregable m t a
+     , Typeable (Variable m t crs' dim a)
      )
-  => AggregateSettings m exp t                a
-  -> Variable          m exp AreaT   crs  dim any
-  -> Variable          m exp t       crs' dim a
-  -> Variable          m exp AreaT   crs  dim a
+  => AggregateSettings m t                a
+  -> Variable          m AreaT   crs  dim any
+  -> Variable          m t       crs' dim a
+  -> Variable          m AreaT   crs  dim a
 aggregate = Aggregate
 
 -- | Aplica una funcion sobre todos los elemementos
 map
   :: ( HasUnits b
-     , Typeable (Variable m exp t crs dim b)
+     , Typeable (Variable m t crs dim b)
      )
-  => WithFingerprint (exp b -> exp a)
-  -> Variable m exp t crs dim b
-  -> Variable m exp t crs dim a
+  => WithFingerprint (Exp m b -> Exp m a)
+  -> Variable m t crs dim b
+  -> Variable m t crs dim a
 map = Map
 
 
@@ -198,20 +198,20 @@ checkpoint ::
   ( Dimension dim
   )
   => (DimensionIx dim -> Bool)
-  -> Variable m exp t crs dim a
-  -> Variable m exp t crs dim a
+  -> Variable m t crs dim a
+  -> Variable m t crs dim a
 checkpoint = CheckPoint
 
 
 describe
   :: Description
-  -> Variable m exp t crs dim a
-  -> Variable m exp t crs dim a
+  -> Variable m t crs dim a
+  -> Variable m t crs dim a
 describe = Describe
 
 
 -- | Devuelve la dimension de una variable
-dimension :: Variable m exp t crs dim a -> dim
+dimension :: Variable m t crs dim a -> dim
 dimension RasterInput{rDimension}  = rDimension
 dimension PointInput{pDimension}   = pDimension
 dimension AreaInput{aDimension}    = aDimension
@@ -250,7 +250,7 @@ dimension (Map _ v)                = dimension v
 --   WithFingerprint se genere correctamente).
 --
 fingerprint :: Monad m
-            => Variable m exp t crs dim a
+            => Variable m t crs dim a
             -> DimensionIx dim
             -> m (Either LoadError Fingerprint)
 
@@ -320,7 +320,7 @@ combineFPs = hashFinalize . hashUpdates hashInit
 
 combineVarFPWith
   :: (HasFingerprint o, Monad m)
-  => Variable m exp t crs dim a
+  => Variable m t crs dim a
   -> o
   -> DimensionIx dim
   -> m (Either LoadError Fingerprint)
@@ -331,8 +331,8 @@ combineVarFPWith v o ix = do
 
 combineVarsFPWith
   :: (HasFingerprint o, Monad m)
-  => Variable m exp t crs dim a
-  -> Variable m exp' t' crs' dim a'
+  => Variable m t crs dim a
+  -> Variable m t' crs' dim a'
   -> o
   -> DimensionIx dim
   -> m (Either LoadError Fingerprint)
@@ -360,18 +360,18 @@ instance (Monad m, m ~ m') => Hoistable m m' where
 --   funcion de reduccion descender si puede
 --   (eg: getMissingInputs lo hace)
 foldAST
-  :: forall m exp t crs dim a b. Hoistable m m
-  => (forall m' exp' t' dim' crs' a'.
+  :: forall m t crs dim a b. Hoistable m m
+  => (forall m' t' dim' crs' a'.
       ( Hoistable m m', DimensionIx dim ~ DimensionIx dim' )
-      => b -> Variable m' exp' t' crs' dim' a' -> m' b
+      => b -> Variable m' t' crs' dim' a' -> m' b
      )
   -> b
-  -> Variable m exp t crs dim a
+  -> Variable m t crs dim a
   -> m b
 foldAST f = go where
-  go :: forall m' exp' t' crs' a'. Hoistable m m'
+  go :: forall m' t' crs' a'. Hoistable m m'
      => b
-     -> Variable m' exp' t' crs' dim a'
+     -> Variable m' t' crs' dim a'
      -> m b
   go z v@RasterInput{}        = hoist (f z v)
   go z v@PointInput{}         = hoist (f z v)
@@ -399,15 +399,15 @@ deriving instance Show SomeDimensionIx
 -- | Devuelve una lista con las descripciones de las entradas que no
 --   se pueden generar
 getMissingInputs
-  :: forall m exp t crs dim a. Monad m
-  => Variable m exp t crs dim a -> DimensionIx dim
+  :: forall m t crs dim a. Monad m
+  => Variable m t crs dim a -> DimensionIx dim
   -> m [(SomeDimensionIx, Description, Message)]
 getMissingInputs v0 ix = foldAST step [] v0 where
 
-  step :: forall m' exp' t' crs' dim' a'.
+  step :: forall m' t' crs' dim' a'.
           ( Hoistable m m', DimensionIx dim ~  DimensionIx dim' )
       => [(SomeDimensionIx, Description, Message)]
-      -> Variable m' exp' t' crs' dim' a'
+      -> Variable m' t' crs' dim' a'
       -> m' [(SomeDimensionIx, Description, Message)]
 
   step z RasterInput{rLoad,rDescription,rDimension} = do
@@ -460,10 +460,10 @@ getMissingInputs v0 ix = foldAST step [] v0 where
   step z (Map _ v) = step z v
 
 prettyAST
-  :: forall m exp t crs dim a. Typeable (Variable m exp t crs dim a)
-  => Variable m exp t crs dim a -> Doc
+  :: forall m t crs dim a. Typeable (Variable m t crs dim a)
+  => Variable m t crs dim a -> Doc
 prettyAST = goV where
-  go, goV :: Variable m exp t crs dim a -> Doc
+  go, goV :: Variable m t crs dim a -> Doc
   goV v = text (show (typeOf v)) $$ nest 2 (go v) where
   go RasterInput{rDescription,rDimension} =
     "RasterInput" <+> doubleQuotes (text (T.unpack rDescription))
