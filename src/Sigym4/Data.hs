@@ -14,6 +14,7 @@ module Sigym4.Data (
 import Sigym4.Data.Generic
   ( Variable ((:<|>))
   , VariableType (..)
+  , MissingInput (..)
   , RasterT
   , AreaT
   , PointT
@@ -31,15 +32,18 @@ import Sigym4.Data.Generic
   , checkpoint
   , describe
   , map
+  , zipWith
 
   , getMissingInputs
   , prettyAST
+  , fp
   )
 
 import Sigym4.Data.Units
 import Sigym4.Data.AST
   ( Fingerprint
   , WithFingerprint(..)
+  , SomeDimensionIx (..)
   , HasFingerprint
   , LoadError (..)
   , Description

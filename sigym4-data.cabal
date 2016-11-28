@@ -50,6 +50,8 @@ test-suite spec
   type:             exitcode-stdio-1.0
   build-depends:    base
                   , hspec                >= 1.10.0
+                  , newtype
+                  , time
                   , sigym4-data
                   , QuickCheck
   hs-source-dirs:   test

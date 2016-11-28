@@ -11,6 +11,7 @@
 module Sigym4.Data.Generic (
   Variable ((:<|>))
 , VariableType (..)
+, MissingInput (..)
 , RasterT
 , AreaT
 , PointT
@@ -30,8 +31,10 @@ module Sigym4.Data.Generic (
 , checkpoint
 , describe
 , Sigym4.Data.Generic.map
+, Sigym4.Data.Generic.zipWith
 
 -- * Utilidades varias
+, fp
 , getMissingInputs
 , prettyAST
 
@@ -46,8 +49,8 @@ import           Sigym4.Dimension
 import           SpatialReference
 
 import           Crypto.Hash
+import           Data.ByteString (ByteString)
 import qualified Data.Text as T
-import           Data.List.NonEmpty (NonEmpty, toList)
 import           Data.Monoid ((<>))
 import           Data.Typeable ( Typeable, typeOf )
 import           Text.PrettyPrint hiding ((<>))
@@ -64,10 +67,11 @@ adaptDim
   :: ( Dimension from
      , Dimension to
      , Show to
+     , Show (DimensionIx to)
      , Typeable (Variable m t crs from a)
      )
   => to
-  -> WithFingerprint (from -> DimensionIx to -> NonEmpty (DimensionIx from))
+  -> (from -> DimensionIx to -> [DimensionIx from])
   -> Variable m t crs from a
   -> Variable m t crs to a
 adaptDim = AdaptDim
@@ -86,8 +90,8 @@ isDerived = not . isInput
 
 -- | Una variable que solo depende de la dimension
 ofDimension
-  :: (HasFingerprint (DimensionIx dim), Dimension dim, Show dim)
-  => WithFingerprint (DimensionIx dim -> a) -> dim
+  :: (HasFingerprint a, Dimension dim, Show dim)
+  => (DimensionIx dim -> a) -> dim
   -> Variable m t crs dim a
 ofDimension = DimensionDependant
 
@@ -174,7 +178,7 @@ aggregate
   -> Variable          m AreaT   crs  dim a
 aggregate = Aggregate
 
--- | Aplica una funcion sobre todos los elemementos
+-- | Aplica una funcion sobre todos los elementos
 map
   :: ( HasUnits b
      , Typeable (Variable m t crs dim b)
@@ -183,6 +187,20 @@ map
   -> Variable m t crs dim b
   -> Variable m t crs dim a
 map = Map
+
+-- | Aplica una funcion binaria sobre todos los elementos
+zipWith
+  :: ( HasUnits b
+     , HasUnits c
+     , Typeable (Variable m t crs dim b)
+     , Typeable (Variable m t crs dim c)
+     )
+  => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
+  -> Variable m t crs dim b
+  -> Variable m t crs dim c
+  -> Variable m t crs dim a
+
+zipWith = ZipWith
 
 
 -- | Indica al interprete que se esfuerze en cachear una variable
@@ -232,6 +250,10 @@ dimension (AdaptDim d _ _)         = d
 dimension (CheckPoint _ v)         = dimension v
 dimension (Describe _ v)           = dimension v
 dimension (Map _ v)                = dimension v
+-- En las aplicaciones de mas de una variable cogemos la dimension
+-- de la primera variable siempre. Si se necesita mas control se
+-- puede envolver con adaptDim
+dimension (ZipWith _ v _)          = dimension v
 
 
 
@@ -259,10 +281,10 @@ fingerprint RasterInput{rFingerprint}  = rFingerprint
 fingerprint PointInput{pFingerprint}   = pFingerprint
 fingerprint AreaInput{aFingerprint}    = aFingerprint
 
--- La de una funcion del indice dimensional es producto de
--- la huella de la funcion y de la huella del indice
+-- La de una funcion del indice dimensional es producto de su resultado
+-- (Asumimos que se calcula muy rapido)
 fingerprint (DimensionDependant f _)   =
-  return . Right . combineFPs . (:AST.fingerprint f:[]) . AST.fingerprint
+  return . Right . AST.fingerprint . f
 
 -- La huella de una alternativa es la de la primera opcion si
 -- se puede cargar o si no la de la segunda.
@@ -289,30 +311,28 @@ fingerprint (Sample s v w)           = combineVarsFPWith v w s
 fingerprint (Aggregate s v w)        = combineVarsFPWith v w s
 --
 -- La huella de una adaptacion de dimension es la huella del
--- primer indice adaptado que devuelva huella combinado con la
--- huella de la funcion de adaptacion
+-- primer indice adaptado que devuelva huella
 --
 -- OJO: Asume que el interprete realmente ejecuta la primera opcion
 --      valida, es decir, que se "porta bien".
 --
-fingerprint (AdaptDim _ (WithFingerprint fp fun) v) = \ix -> do
-  let loop (x:[]) = fingerprint v x
-      loop (x:xs) = do efv <- fingerprint v x
+fingerprint va@(AdaptDim dim fun v) = \ix ->
+  let loop (x:xs) = do efv <- fingerprint v x
                        either (const (loop xs)) (return . Right) efv
-      -- Unreachable ya que la funcion de adaptacion devuelve
-      -- NonEmpty
-      loop [] = error "unreachable"
-  efv <- loop (toList (fun (dimension v) ix))
-  case efv of
-    Right fv -> return (Right (combineFPs [fv, fp]))
-    Left _   -> return efv
+      loop [] = return $
+        Left (DimAdaptError (varDescription va) (SomeDimensionIx dim ix))
+      varDescription = error "TBD!"
+
+  in loop (fun (dimension v) ix)
 
 fingerprint (CheckPoint _ v) = fingerprint v
 fingerprint (Describe   _ v) = fingerprint v
 
 -- La huella de la aplicacion de una funcion unaria es la huella
 -- de la variable de entrada combinada con la de adaptacion
-fingerprint (Map f v) = combineVarFPWith v f
+fingerprint (Map f v)  = combineVarFPWith v f
+fingerprint (ZipWith f v w) = combineVarsFPWith v w f
+
 
 combineFPs
   :: [Fingerprint] -> Fingerprint
@@ -387,46 +407,51 @@ foldAST f = go where
   go z v@(CheckPoint _ w)     = hoist (f z v >>= flip f w)
   go z v@(Describe   _ w)     = hoist (f z v >>= flip f w)
   go z v@(Map _ w)            = hoist (f z v >>= flip f w)
+  go z v@(ZipWith _ w w')     = hoist (f z v >>= flip f w >>= flip f w')
 
-data SomeDimensionIx where
-  SomeDimensionIx :: ( Show (DimensionIx dim)
-                     , Show dim
-                     , Dimension dim
-                     )
-                  => dim -> DimensionIx dim -> SomeDimensionIx
-deriving instance Show SomeDimensionIx
+data MissingInput = MissingInput
+  { missingIx      :: SomeDimensionIx
+  , missingDesc    :: Description
+  , missingError   :: LoadError
+  } deriving Show
 
 -- | Devuelve una lista con las descripciones de las entradas que no
 --   se pueden generar
 getMissingInputs
   :: forall m t crs dim a. Monad m
   => Variable m t crs dim a -> DimensionIx dim
-  -> m [(SomeDimensionIx, Description, Message)]
+  -> m [MissingInput]
 getMissingInputs v0 ix = foldAST step [] v0 where
 
   step :: forall m' t' crs' dim' a'.
           ( Hoistable m m', DimensionIx dim ~  DimensionIx dim' )
-      => [(SomeDimensionIx, Description, Message)]
+      => [MissingInput]
       -> Variable m' t' crs' dim' a'
-      -> m' [(SomeDimensionIx, Description, Message)]
+      -> m' [MissingInput]
 
   step z RasterInput{rLoad,rDescription,rDimension} = do
     r <- hoist (rLoad ix)
     return $ case r of
       Right _ -> z
-      Left e  -> (SomeDimensionIx rDimension ix, rDescription, show e) : z
+      Left e  ->
+        let mi = MissingInput (SomeDimensionIx rDimension ix) rDescription e
+        in mi : z
     
   step z PointInput{pLoad,pDescription,pDimension} = do
     r <- hoist (pLoad ix)
     return $ case r of
       Right _ -> z
-      Left e  -> (SomeDimensionIx pDimension ix, pDescription, show e) : z
+      Left e  ->
+        let mi = MissingInput (SomeDimensionIx pDimension ix) pDescription e
+        in mi : z
 
   step z AreaInput{aLoad,aDescription,aDimension} = do
     r <- hoist (aLoad ix)
     return $ case r of
       Right _ -> z
-      Left e  -> (SomeDimensionIx aDimension ix, aDescription, show e) : z
+      Left e  ->
+        let mi = MissingInput (SomeDimensionIx aDimension ix) aDescription e
+        in mi : z
 
   step z DimensionDependant{} = return z
 
@@ -448,16 +473,17 @@ getMissingInputs v0 ix = foldAST step [] v0 where
   step z (Sample    _ v w) = step z v >>= flip step w
   step z (Aggregate _ v w) = step z v >>= flip step w
 
-  step z (AdaptDim _ (WithFingerprint _ f) v) =
+  step z (AdaptDim _ f v) =
     let loop z' (x:xs) = do
           z'' <- hoist (getMissingInputs v x)
           if null z'' then return z' else loop z'' xs
         loop z' [] = return z'
-    in loop z (toList (f (dimension v) ix))
+    in loop z (f (dimension v) ix)
   step z (CheckPoint _ v) = step z v
   step z (Describe   _ v) = step z v
 
-  step z (Map _ v) = step z v
+  step z (Map     _ v  ) = step z v
+  step z (ZipWith _ v w) = step z v >>= flip step w
 
 prettyAST
   :: forall m t crs dim a. Typeable (Variable m t crs dim a)
@@ -474,7 +500,7 @@ prettyAST = goV where
   go AreaInput{aDescription,aDimension} =
     "AreaInput" <+> doubleQuotes (text (T.unpack aDescription))
                 <+> parens (text (show aDimension))
-  go (DimensionDependant (WithFingerprint _ _) dim) =
+  go (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
   go (s1 :<|> s2) =
     nest 2 (goV s1) <+> ":<|>" $$ nest 2 (goV s2)
@@ -496,4 +522,8 @@ prettyAST = goV where
     text (T.unpack desc) $$ nest 2 (prettyAST var)
   go (Map _ s2) =
     "Map" $$ nest 2 (prettyAST s2)
+  go (ZipWith _ a b) =
+    "ZipWith" $$ nest 2 (prettyAST a) $$ nest 2 (prettyAST b)
 
+fp :: ByteString -> a -> WithFingerprint a
+fp s = WithFingerprint (hash s)

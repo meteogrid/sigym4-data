@@ -23,9 +23,9 @@ import           Sigym4.Geometry.Algorithms (HasExtent)
 import           SpatialReference
 
 import           Crypto.Hash (Digest, SHA1)
-import           Data.List.NonEmpty (NonEmpty)
 import           Data.Text (Text)
 import           Data.Default
+import           Data.Function ( on )
 import           Data.Typeable
 import           Data.Vector.Storable ( Vector, Storable )
 import           GHC.TypeLits
@@ -113,11 +113,11 @@ data Variable
 
   -- | Una variable que solo depende de la dimension
   DimensionDependant
-    :: ( HasFingerprint (DimensionIx dim)
+    :: ( HasFingerprint a
        , Dimension dim
        , Show dim
        )
-    => WithFingerprint (DimensionIx dim -> a)
+    => (DimensionIx dim -> a)
     -> dim
     -> Variable m t crs dim a
 
@@ -222,11 +222,12 @@ data Variable
     ( Dimension dim
     , Dimension dim'
     , Show dim
+    , Show (DimensionIx dim)
     , Typeable (Variable m t crs dim' a)
     --, DimensionIx dim' ~  DimensionIx dim
     )
     => dim
-    -> WithFingerprint (dim' -> DimensionIx dim -> NonEmpty (DimensionIx dim'))
+    -> (dim' -> DimensionIx dim -> [DimensionIx dim'])
     -> Variable m t crs dim' a
     -> Variable m t crs dim  a
 
@@ -264,6 +265,18 @@ data Variable
     -> Variable m t crs dim b
     -> Variable m t crs dim a
 
+  ZipWith
+    :: ( HasUnits b
+       , HasUnits c
+       , Typeable (Variable m t crs dim b)
+       , Typeable (Variable m t crs dim c)
+       )
+    => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
+    -> Variable m t crs dim b
+    -> Variable m t crs dim c
+    -> Variable m t crs dim a
+
+
 deriving instance Typeable (Variable m t crs dim a)
 
 class HasFingerprint o where
@@ -295,15 +308,24 @@ data LoadError
   = NotAvailable
   -- La entrada esta corrupta y no se debe volver a intentar
   -- abrir hasta que algun operario lo arregle
-  | Corrupt         !Message
+  | Corrupt         Message
   -- La entrada no se puede cargar por algun problema transitorio.
   -- Se debe reintentar abrir pasado algun tiempo si procede
-  | TransitoryError !Message
+  | TransitoryError Message
   -- Hay algun problema interno y no se debe volver a intentar
   -- abrir hasta que algun operario lo arregle
-  | InternalError   !Message
+  | InternalError   Message
+  | DimAdaptError   Description SomeDimensionIx
   deriving (Eq, Show)
 
+data SomeDimensionIx where
+  SomeDimensionIx :: ( Show (DimensionIx dim)
+                     , Show dim
+                     , Dimension dim
+                     )
+                  => dim -> DimensionIx dim -> SomeDimensionIx
+deriving instance Show SomeDimensionIx
+instance Eq SomeDimensionIx where (==) = (==) `on` show
 
 
 class ( HasFingerprint (WarpSettings m t a)
