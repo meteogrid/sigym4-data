@@ -20,6 +20,7 @@ library
                      , Sigym4.Data.Units
                      , Sigym4.Data.AST
                      , Sigym4.Data.Generic
+                     , Sigym4.Data.Fingerprint
   build-depends:
       base >=4.9 && <4.10
     , ieee754

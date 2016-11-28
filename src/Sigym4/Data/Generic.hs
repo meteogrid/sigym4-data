@@ -19,7 +19,7 @@ module Sigym4.Data.Generic (
 -- * Constructores de nodos del AST
 , adaptDim
 , dimension
-, fingerprint
+, getFingerprint
 , isInput
 , isDerived
 , ofDimension
@@ -34,7 +34,6 @@ module Sigym4.Data.Generic (
 , Sigym4.Data.Generic.zipWith
 
 -- * Utilidades varias
-, fp
 , getMissingInputs
 , prettyAST
 
@@ -42,14 +41,12 @@ module Sigym4.Data.Generic (
 , foldAST
 ) where
 
-import qualified Sigym4.Data.AST as AST
-import           Sigym4.Data.AST hiding (fingerprint)
+import           Sigym4.Data.AST as AST
+import           Sigym4.Data.Fingerprint
 import           Sigym4.Data.Units
 import           Sigym4.Dimension
 import           SpatialReference
 
-import           Crypto.Hash
-import           Data.ByteString (ByteString)
 import qualified Data.Text as T
 import           Data.Monoid ((<>))
 import           Data.Typeable ( Typeable, typeOf )
@@ -271,20 +268,21 @@ dimension (ZipWith _ v _)          = dimension v
 --   (asumiendo que el Fingerprint de las funciones envueltas con 
 --   WithFingerprint se genere correctamente).
 --
-fingerprint :: Monad m
-            => Variable m t crs dim a
-            -> DimensionIx dim
-            -> m (Either LoadError Fingerprint)
+getFingerprint
+  :: Monad m
+  => Variable m t crs dim a
+  -> DimensionIx dim
+  -> m (Either LoadError Fingerprint)
 
 -- La huella de las entradas es la calculada por el cargador
-fingerprint RasterInput{rFingerprint}  = rFingerprint
-fingerprint PointInput{pFingerprint}   = pFingerprint
-fingerprint AreaInput{aFingerprint}    = aFingerprint
+getFingerprint RasterInput{rFingerprint}  = rFingerprint
+getFingerprint PointInput{pFingerprint}   = pFingerprint
+getFingerprint AreaInput{aFingerprint}    = aFingerprint
 
 -- La de una funcion del indice dimensional es producto de su resultado
 -- (Asumimos que se calcula muy rapido)
-fingerprint (DimensionDependant f _)   =
-  return . Right . AST.fingerprint . f
+getFingerprint (DimensionDependant f _)   =
+  return . Right . fingerprint . f
 
 -- La huella de una alternativa es la de la primera opcion si
 -- se puede cargar o si no la de la segunda.
@@ -298,17 +296,17 @@ fingerprint (DimensionDependant f _)   =
 --
 --  Es decir, que se "porta bien".
 --
-fingerprint (v :<|> w)               = \ix ->
-  fingerprint v ix
-  >>= either (const (fingerprint w ix)) (return . Right)
+getFingerprint (v :<|> w)               = \ix ->
+  getFingerprint v ix
+  >>= either (const (getFingerprint w ix)) (return . Right)
 
 -- La huella de las operaciones "builtin" es la huella de las
 -- variables de entrada y de su configuracion.
-fingerprint (Warp s v)               = combineVarFPWith v s
-fingerprint (Grid s v)               = combineVarFPWith v s
-fingerprint (Rasterize s v)          = combineVarFPWith v s
-fingerprint (Sample s v w)           = combineVarsFPWith v w s
-fingerprint (Aggregate s v w)        = combineVarsFPWith v w s
+getFingerprint (Warp s v)               = combineVarFPWith v s
+getFingerprint (Grid s v)               = combineVarFPWith v s
+getFingerprint (Rasterize s v)          = combineVarFPWith v s
+getFingerprint (Sample s v w)           = combineVarsFPWith v w s
+getFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
 --
 -- La huella de una adaptacion de dimension es la huella del
 -- primer indice adaptado que devuelva huella
@@ -316,8 +314,8 @@ fingerprint (Aggregate s v w)        = combineVarsFPWith v w s
 -- OJO: Asume que el interprete realmente ejecuta la primera opcion
 --      valida, es decir, que se "porta bien".
 --
-fingerprint va@(AdaptDim dim fun v) = \ix ->
-  let loop (x:xs) = do efv <- fingerprint v x
+getFingerprint va@(AdaptDim dim fun v) = \ix ->
+  let loop (x:xs) = do efv <- getFingerprint v x
                        either (const (loop xs)) (return . Right) efv
       loop [] = return $
         Left (DimAdaptError (varDescription va) (SomeDimensionIx dim ix))
@@ -325,18 +323,13 @@ fingerprint va@(AdaptDim dim fun v) = \ix ->
 
   in loop (fun (dimension v) ix)
 
-fingerprint (CheckPoint _ v) = fingerprint v
-fingerprint (Describe   _ v) = fingerprint v
+getFingerprint (CheckPoint _ v) = getFingerprint v
+getFingerprint (Describe   _ v) = getFingerprint v
 
 -- La huella de la aplicacion de una funcion unaria es la huella
 -- de la variable de entrada combinada con la de adaptacion
-fingerprint (Map f v)  = combineVarFPWith v f
-fingerprint (ZipWith f v w) = combineVarsFPWith v w f
-
-
-combineFPs
-  :: [Fingerprint] -> Fingerprint
-combineFPs = hashFinalize . hashUpdates hashInit
+getFingerprint (Map f v)  = combineVarFPWith v f
+getFingerprint (ZipWith f v w) = combineVarsFPWith v w f
 
 combineVarFPWith
   :: (HasFingerprint o, Monad m)
@@ -345,9 +338,9 @@ combineVarFPWith
   -> DimensionIx dim
   -> m (Either LoadError Fingerprint)
 combineVarFPWith v o ix = do
-  efv <- fingerprint v ix
-  let fo = [AST.fingerprint o]
-  return (either Left (Right . combineFPs . (:fo)) efv)
+  efv <- getFingerprint v ix
+  let fo = [fingerprint o]
+  return (either Left (Right . mconcat . (:fo)) efv)
 
 combineVarsFPWith
   :: (HasFingerprint o, Monad m)
@@ -357,14 +350,14 @@ combineVarsFPWith
   -> DimensionIx dim
   -> m (Either LoadError Fingerprint)
 combineVarsFPWith v w o ix = do
-  efv <- fingerprint v ix
+  efv <- getFingerprint v ix
   case efv of
     Left _ -> return efv
     Right fv -> do
       efw <- combineVarFPWith w o ix
       return $ case efw of
         Left _ -> efw
-        Right fw -> Right (combineFPs [AST.fingerprint o, fv, fw])
+        Right fw -> Right (mconcat [fingerprint o, fv, fw])
 
 class (Monad m, Monad m') => Hoistable m m' where
   hoist :: forall a. m' a -> m a
@@ -524,6 +517,3 @@ prettyAST = goV where
     "Map" $$ nest 2 (prettyAST s2)
   go (ZipWith _ a b) =
     "ZipWith" $$ nest 2 (prettyAST a) $$ nest 2 (prettyAST b)
-
-fp :: ByteString -> a -> WithFingerprint a
-fp s = WithFingerprint (hash s)

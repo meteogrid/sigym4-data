@@ -17,12 +17,12 @@
 module Sigym4.Data.AST where
 
 import           Sigym4.Data.Units
+import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 import           Sigym4.Geometry (Size, Extent, GeoReference, V2)
 import           Sigym4.Geometry.Algorithms (HasExtent)
 import           SpatialReference
 
-import           Crypto.Hash (Digest, SHA1)
 import           Data.Text (Text)
 import           Data.Default
 import           Data.Function ( on )
@@ -279,19 +279,6 @@ data Variable
 
 deriving instance Typeable (Variable m t crs dim a)
 
-class HasFingerprint o where
-  fingerprint :: o -> Fingerprint
-
-data WithFingerprint a = WithFingerprint Fingerprint a
-  deriving (Eq, Ord, Show)
-
-instance HasFingerprint (WithFingerprint a) where
-  fingerprint (WithFingerprint f _) = f
-
-instance HasFingerprint Fingerprint where
-  fingerprint = id
-
-type Fingerprint = Digest SHA1
 
 type RasterT = 'RasterT
 type PointT = 'PointT
