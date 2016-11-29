@@ -16,12 +16,10 @@ module Sigym4.Data.Generic (
 , AreaT
 , PointT
 
--- * Constructores de nodos del AST
+-- * Constructores de nodos del AST y sus restricciones
+, CanAdaptDim
 , adaptDim
-, dimension
-, getFingerprint
-, isInput
-, isDerived
+
 , ofDimension
 , warp
 , grid
@@ -30,12 +28,16 @@ module Sigym4.Data.Generic (
 , aggregate
 , checkpoint
 , describe
-, Sigym4.Data.Generic.map
-, Sigym4.Data.Generic.zipWith
+, map
+, zipWith
 
 -- * Utilidades varias
 , getMissingInputs
 , prettyAST
+, dimension
+, getFingerprint
+, isInput
+, isDerived
 
 -- * Utilidades semi-internas para analisis de AST
 , foldAST
@@ -51,6 +53,7 @@ import qualified Data.Text as T
 import           Data.Monoid ((<>))
 import           Data.Typeable ( Typeable, typeOf )
 import           Text.PrettyPrint hiding ((<>))
+import           Prelude hiding (map, zipWith)
 
           
 
@@ -61,12 +64,7 @@ import           Text.PrettyPrint hiding ((<>))
 --   debe devolver una lista no vacia de posibles indices que se
 --   probaran en orden
 adaptDim
-  :: ( Dimension from
-     , Dimension to
-     , Show to
-     , Show (DimensionIx to)
-     , Typeable (Variable m t crs from a)
-     )
+  :: CanAdaptDim m t crs from to a
   => to
   -> (from -> DimensionIx to -> [DimensionIx from])
   -> Variable m t crs from a

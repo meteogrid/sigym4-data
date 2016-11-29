@@ -1,8 +1,9 @@
+{-# OPTIONS_GHC -fdefer-type-errors #-}
+-- Para los tests de cosas que no deben compilar
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -21,6 +22,7 @@ import           Data.List (isInfixOf)
 import           Data.Maybe
 
 import           Test.Hspec
+import           Test.ShouldNotTypecheck (shouldNotTypecheck)
 
 main :: IO ()
 main = hspec spec
@@ -78,6 +80,8 @@ spec = do
               (const (return (Left NotAvailable)))
               ([0,60..24*60] :* Schedule [cron|0 0 * * *|])
 
+        sqErr = [fp|version1|] $ \o p -> o*o - p*p
+
         predictedTime (horizon:*runTime) = addHorizon horizon runTime
 
         closestObservedTime dObs ixPred =
@@ -86,19 +90,24 @@ spec = do
 
         adaptedObs = adaptDim (dimension tPred) closestObservedTime tObs
 
-        err :: DummyRasterVar (Epsg 23030) Prediction Temperature
-        err = D.describe "predErr" $
-          D.zipWith (D.fp "v1" (\o p -> o*o - p*p)) adaptedObs tPred
+        tErr :: DummyRasterVar (Epsg 23030) Prediction Temperature
+        tErr = D.describe "predErr" $
+                 D.zipWith sqErr adaptedObs tPred
+
+    it "should not typecheck without adaptDim" $ shouldNotTypecheck $
+      let tErr :: DummyRasterVar (Epsg 23030) Prediction Temperature
+          tErr = D.describe "predErr" $
+                   D.zipWith sqErr tObs tPred
+      in tErr
 
     it "can be pretty printed" $ do
-      show (prettyAST err) `shouldSatisfy` isInfixOf "predErr"
-      show (prettyAST err) `shouldSatisfy` isInfixOf "AdaptDim"
-      show (prettyAST err) `shouldSatisfy` isInfixOf "ZipWith"
+      show (prettyAST tErr) `shouldSatisfy` isInfixOf "predErr"
+      show (prettyAST tErr) `shouldSatisfy` isInfixOf "AdaptDim"
+      show (prettyAST tErr) `shouldSatisfy` isInfixOf "ZipWith"
 
     it "can calculate missing inputs" $ do
       let ix = Hour 6 :* datetime 2016 11 28 0 0
-          missing = runDummy (getMissingInputs err ix)
-      length missing `shouldBe` 2
+          missing = runDummy (getMissingInputs tErr ix)
       map missingIx missing `shouldMatchList` [
           SomeDimensionIx (dimension tObs)  (datetime 2016 11 28 6 0)
         , SomeDimensionIx (dimension tPred) ix

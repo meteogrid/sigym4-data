@@ -23,6 +23,7 @@ import           Sigym4.Geometry (Size, Extent, GeoReference, V2)
 import           Sigym4.Geometry.Algorithms (HasExtent)
 import           SpatialReference
 
+import           Control.DeepSeq (NFData(rnf))
 import           Data.Text (Text)
 import           Data.Default
 import           Data.Function ( on )
@@ -218,14 +219,8 @@ data Variable
   --   Tambien se puede usar para tener mas control sobre
   --   como se seleccionan entradas de la misma dimension pero
   --   distintos valores. Por defecto se selecciona usando dfloor
-  AdaptDim ::
-    ( Dimension dim
-    , Dimension dim'
-    , Show dim
-    , Show (DimensionIx dim)
-    , Typeable (Variable m t crs dim' a)
-    --, DimensionIx dim' ~  DimensionIx dim
-    )
+  AdaptDim
+    :: CanAdaptDim m t crs dim' dim a
     => dim
     -> (dim' -> DimensionIx dim -> [DimensionIx dim'])
     -> Variable m t crs dim' a
@@ -276,8 +271,44 @@ data Variable
     -> Variable m t crs dim c
     -> Variable m t crs dim a
 
+type CanAdaptDim m t crs dim' dim a =
+  ( Dimension dim
+  , Dimension dim'
+  , NFData dim'
+  , Show dim
+  , Show (DimensionIx dim)
+  , Typeable (Variable m t crs dim' a)
+  )
 
 deriving instance Typeable (Variable m t crs dim a)
+instance ( NFData dim
+         ) => NFData (Variable m t crs dim a)
+  where
+
+  rnf RasterInput {rLoad,rFingerprint,rDimension,rDescription} =
+    rnf rLoad `seq` rnf rFingerprint
+              `seq` rnf rDimension
+              `seq` rnf rDescription
+  rnf PointInput {pLoad,pFingerprint,pDimension,pDescription} =
+    rnf pLoad `seq` rnf pFingerprint
+              `seq` rnf pDimension
+              `seq` rnf pDescription
+  rnf AreaInput {aLoad,aFingerprint,aDimension,aDescription} =
+    rnf aLoad `seq` rnf aFingerprint
+              `seq` rnf aDimension
+              `seq` rnf aDescription
+  rnf (DimensionDependant v1 v2) = rnf v1 `seq` rnf v2
+  rnf (v1 :<|> v2) = rnf v1 `seq` rnf v2
+  rnf (Warp v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Grid v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Rasterize v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
+  rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
+  rnf (AdaptDim v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
+  rnf (CheckPoint v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Describe v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Map v1 v2) = rnf v1 `seq` rnf v2
+  rnf (ZipWith v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
 
 
 type RasterT = 'RasterT
@@ -304,6 +335,12 @@ data LoadError
   | InternalError   Message
   | DimAdaptError   Description SomeDimensionIx
   deriving (Eq, Show)
+
+instance {-# OVERLAPPABLE #-}
+  ( TypeError ('Text "Cannot use 'fingerprint' on Variables. Use " ':$$:
+               'Text "'getFingerprint' instead")
+  ) => HasFingerprint (Variable m t crs dim a) where
+  fingerprint = error "unreachable"
 
 data SomeDimensionIx where
   SomeDimensionIx :: ( Show (DimensionIx dim)

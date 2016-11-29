@@ -1,4 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleInstances #-}
 module Sigym4.Data.Fingerprint (
@@ -8,16 +10,20 @@ module Sigym4.Data.Fingerprint (
 , fp
 ) where
 
-import           Control.DeepSeq (NFData)
+import           Control.DeepSeq (NFData(rnf))
 import           Crypto.Hash
-import           Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BS
 import           Language.Haskell.TH
+import           Language.Haskell.TH.Quote
 
 newtype Fingerprint = FP { unFP :: Digest SHA1 }
   deriving (Eq, Ord, Show, NFData)
 
 data WithFingerprint a = WithFingerprint Fingerprint a
   deriving (Eq, Ord, Show)
+
+instance NFData a => NFData (WithFingerprint a) where
+  rnf (WithFingerprint f a) = rnf f `seq` rnf a
 
 class HasFingerprint o where
   fingerprint :: o -> Fingerprint
@@ -29,14 +35,17 @@ instance HasFingerprint (WithFingerprint a) where
 instance HasFingerprint Fingerprint where
   fingerprint = id
 
-fp :: ByteString -> a -> WithFingerprint a
-fp s = WithFingerprint (FP (hash s))
-
 instance Monoid Fingerprint where
   mempty = FP (hashFinalize hashInit)
   mappend (FP a) (FP b) = FP . hashFinalize $ hashUpdates hashInit [a, b]
   mconcat = FP . hashFinalize . hashUpdates hashInit . map unFP
 
-
-mkFingerprint :: Name -> Q Exp
-mkFingerprint = error "TBD"
+fp ::QuasiQuoter
+fp = QuasiQuoter
+  { quoteExp = \s -> do
+      s2 <- ((s++) . loc_filename) <$> location
+      [e|WithFingerprint (FP (hash (BS.pack s2)))|]
+  , quotePat  = undefined
+  , quoteType = const (fail "Cannot apply cron quasiquoter in types")
+  , quoteDec  = const (fail "Cannot apply cron quasiquoter in declarations")
+  }

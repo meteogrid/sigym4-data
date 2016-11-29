@@ -54,6 +54,7 @@ test-suite spec
                   , newtype
                   , time
                   , sigym4-data
+                  , should-not-typecheck
                   , QuickCheck
   hs-source-dirs:   test
   main-is:          Spec.hs
