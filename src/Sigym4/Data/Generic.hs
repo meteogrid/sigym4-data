@@ -175,7 +175,7 @@ aggregate = Aggregate
 
 -- | Aplica una funcion sobre todos los elementos
 map
-  :: ( HasUnits b
+  :: ( HasUnits b (Exp m)
      , Typeable (Variable m t crs dim b)
      )
   => WithFingerprint (Exp m b -> Exp m a)
@@ -185,8 +185,8 @@ map = Map
 
 -- | Aplica una funcion binaria sobre todos los elementos
 zipWith
-  :: ( HasUnits b
-     , HasUnits c
+  :: ( HasUnits b (Exp m)
+     , HasUnits c (Exp m)
      , Typeable (Variable m t crs dim b)
      , Typeable (Variable m t crs dim c)
      )

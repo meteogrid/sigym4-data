@@ -8,10 +8,13 @@ module Sigym4.Data.Fingerprint (
 , WithFingerprint (..)
 , HasFingerprint (..)
 , fp
+, sinkFingerPrint
 ) where
 
 import           Control.DeepSeq (NFData(rnf))
 import           Crypto.Hash
+import           Crypto.Hash.Conduit (sinkHash)
+import           Data.Conduit
 import qualified Data.ByteString.Char8 as BS
 import           Language.Haskell.TH
 import           Language.Haskell.TH.Quote
@@ -49,3 +52,5 @@ fp = QuasiQuoter
   , quoteType = const (fail "Cannot apply cron quasiquoter in types")
   , quoteDec  = const (fail "Cannot apply cron quasiquoter in declarations")
   }
+sinkFingerPrint :: Monad m => Consumer BS.ByteString m Fingerprint
+sinkFingerPrint = fmap FP sinkHash

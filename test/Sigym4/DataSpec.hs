@@ -1,5 +1,5 @@
-{-# OPTIONS_GHC -fdefer-type-errors #-}
 -- Para los tests de cosas que no deben compilar
+{-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DataKinds #-}
@@ -32,7 +32,7 @@ newtype Temperature = Temperature Double
     ( Eq, Ord, Show, Num
     , RealFrac, Real, Fractional, Floating, RealFloat, IEEE, Storable)
 
-instance HasUnits Temperature where
+instance HasUnits Temperature Identity where
   type Units Temperature = ()
   type MachineType Temperature = Double
 
@@ -95,10 +95,9 @@ spec = do
                  D.zipWith sqErr adaptedObs tPred
 
     it "should not typecheck without adaptDim" $ shouldNotTypecheck $
-      let tErr :: DummyRasterVar (Epsg 23030) Prediction Temperature
-          tErr = D.describe "predErr" $
-                   D.zipWith sqErr tObs tPred
-      in tErr
+      let tErrBad :: DummyRasterVar (Epsg 23030) Prediction Temperature
+          tErrBad = D.describe "predErr" $ D.zipWith sqErr tObs tPred
+      in tErrBad
 
     it "can be pretty printed" $ do
       show (prettyAST tErr) `shouldSatisfy` isInfixOf "predErr"

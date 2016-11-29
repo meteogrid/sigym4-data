@@ -24,6 +24,7 @@ import           Sigym4.Geometry.Algorithms (HasExtent)
 import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
+import           Control.Exception (SomeException)
 import           Data.Text (Text)
 import           Data.Default
 import           Data.Function ( on )
@@ -82,7 +83,7 @@ data Variable
        , Dimension dim
        , Show dim
        , Show (DimensionIx dim)
-       , HasUnits a
+       , HasUnits a (Exp m)
        , IsVectorLayer (VectorLayer m crs a) m crs a
        )
     => { pLoad        :: DimensionIx dim
@@ -100,7 +101,7 @@ data Variable
        , Dimension dim
        , Show dim
        , Show (DimensionIx dim)
-       , HasUnits a
+       , HasUnits a (Exp m)
        )
     => { aLoad        :: DimensionIx dim
                       -> m (Either LoadError (VectorLayer m crs a))
@@ -253,7 +254,7 @@ data Variable
 
   -- | Aplica una funcion unaria
   Map
-    :: ( HasUnits b
+    :: ( HasUnits b (Exp m)
        , Typeable (Variable m t crs dim b)
        )
     => WithFingerprint (Exp m b -> Exp m a)
@@ -261,8 +262,8 @@ data Variable
     -> Variable m t crs dim a
 
   ZipWith
-    :: ( HasUnits b
-       , HasUnits c
+    :: ( HasUnits b (Exp m)
+       , HasUnits c (Exp m)
        , Typeable (Variable m t crs dim b)
        , Typeable (Variable m t crs dim c)
        )
@@ -315,9 +316,9 @@ type RasterT = 'RasterT
 type PointT = 'PointT
 type AreaT = 'AreaT
 
-type family RasterBand    (m :: * -> *) crs a = r | r -> m crs a 
+type family RasterBand    (m :: * -> *) crs a = r | r -> m crs a
 type family VectorLayer   (m :: * -> *) crs a = r | r -> m crs a
-type family Exp   (m :: * -> *)   = (r :: * -> *) | r -> m
+type family Exp           (m :: * -> *)       = (r :: * -> *)
 
 type Message = String
 
@@ -333,8 +334,12 @@ data LoadError
   -- Hay algun problema interno y no se debe volver a intentar
   -- abrir hasta que algun operario lo arregle
   | InternalError   Message
+  -- El paso no esta bien configurado y alguna adaptacion de dimension ha
+  -- fallado
   | DimAdaptError   Description SomeDimensionIx
-  deriving (Eq, Show)
+  -- Alguna excepcion...
+  | LoadException   SomeException
+  deriving Show
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "Cannot use 'fingerprint' on Variables. Use " ':$$:
@@ -469,7 +474,7 @@ type IsRasterInput m crs dim a =
   , Dimension dim
   , Show dim
   , Show (DimensionIx dim)
-  , HasUnits a
+  , HasUnits a (Exp m)
   , IsRasterBand (RasterBand m crs a) m crs a
   )
 

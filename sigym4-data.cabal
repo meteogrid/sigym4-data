@@ -26,8 +26,6 @@ library
     , ieee754
     , sigym4-dimension
     , sigym4-geometry
-    -- FIXME: quitar accelerate de las deps
-    , accelerate
     , bytestring
     , spatial-reference
     , deepseq
@@ -38,6 +36,8 @@ library
     , dimensional-parsers
     , newtype
     , cryptonite
+    , cryptonite-conduit
+    , conduit
     , pretty
     , template-haskell
   ghc-options:      -Wall
