@@ -11,76 +11,45 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Sigym4.Data.Generic (
--- * 'Variable' y sus tipos
-  Variable
+  Variable ((:<|>))
 , VariableType
 , RasterT
 , AreaT
 , LineT
 , PointT
 
--- * Restricciones que deben satisfacer las variables
 , IsVariable
 , IsRasterInput
 , IsVectorInput
 
--- * 'MissingInput' es una entrada que falta calculada por
---   'getMissingInputs'
 , MissingInput (..)
 
--- * Constructores de 'Variable's y sus restricciones
-
--- *** Adaptadores
-
--- ** 'adaptDim'
 , CanAdaptDim
 , adaptDim
 
--- ** 'warp'
 , CanWarp
 , warp
 
--- ** Alternativas
 
--- | Selecciona la primera variable si esta disponible, sino la segunda.
---
---   Es un operador asociativo y se puede encadenar, ie:
---
---   >>> opcion1 :<|> (opcion2 :<|> opcion3)
---    = (opcion1 :<|> opcion2) :<|> opcion3
---    = opcion1 :<|> opcion2 :<|> opcion3
-
-, Variable ((:<|>))
-
--- ** Conversiones entre tipos de 'Variable'
-
--- *** 'grid'
 , CanGrid
 , grid
 
--- *** 'rasterize'
 , CanRasterize
 , rasterize
 
--- *** 'sample'
 , CanSample
 , sample
 
--- *** 'aggregate'
 , CanAggregate
 , aggregate
 
--- ** Metadatos de 'Variables'
 , checkpoint
 , describe
 
--- ** Generadores de nuevas variables a partir de otras o del
--- indice dimensional
 , ofDimension
 , map
 , zipWith
 
--- * Utilidades varias
 , getMissingInputs
 , prettyAST
 , dimension
@@ -105,9 +74,16 @@ import           Prelude hiding (map, zipWith)
 -- | Adapta las dimensiones de una variable.
 --
 --   Se usa, por ejemplo, para usar variables de observacion en
---   el calculo de una prediccion. La funcion de adaptacion
---   debe devolver una lista no vacia de posibles indices que se
---   probaran en orden
+--   el calculo de una prediccion.
+--
+--   La funcion de adaptacion debe devolver una lista de posible
+--   indices dimensionales que se probaran en orden.
+--
+--   La lista puede estar vacia si no hay adaptacion satisfactoria
+--   en cuyo caso al intentarse cargar una variable devolvera
+--   'DimAdaptError' lo cual semanticamente es lo mismo que
+--   'NotAvailable'. Esto indica al interprete que explore otras
+--   alternativas, si las hay.
 adaptDim
   :: CanAdaptDim m t crs from to a
   => to
@@ -188,9 +164,7 @@ aggregate = Aggregate
 
 -- | Aplica una funcion sobre todos los elementos
 map
-  :: ( HasUnits b (Exp m)
-     , IsVariable m t crs dim b
-     )
+  :: IsVariable m t crs dim b
   => WithFingerprint (Exp m b -> Exp m a)
   -> Variable m t crs dim b
   -> Variable m t crs dim a
@@ -198,28 +172,24 @@ map = Map
 
 -- | Aplica una funcion binaria sobre todos los elementos
 zipWith
-  :: ( HasUnits b (Exp m)
-     , HasUnits c (Exp m)
-     , IsVariable m t crs dim b
+  :: ( IsVariable m t crs dim b
      , IsVariable m t crs dim c
      )
   => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
   -> Variable m t crs dim b
   -> Variable m t crs dim c
   -> Variable m t crs dim a
-
 zipWith = ZipWith
 
 
 -- | Indica al interprete que se esfuerze en cachear una variable
---   cuando su indice dimensional pase el predicado.
+-- cuando su indice dimensional pase el predicado.
 --
---   Esto es util para variables recursivas (eg: canadiense, dias sin
---   precipitacion, etc..)
+-- Esto es util para variables recursivas (eg: canadiense, dias sin
+-- precipitacion, etc..)
 --
---   El interprete es libre de no hacerlo o de insertar nodos de estos
---   automaticamente si lo cree necesario.
---
+-- El interprete es libre de no hacerlo o de insertar nodos de estos
+-- automaticamente si lo cree necesario.
 checkpoint ::
   ( Dimension dim
   )
@@ -229,6 +199,9 @@ checkpoint ::
 checkpoint = CheckPoint
 
 
+-- | Le da nombre a una 'Variable'. Unicamente sirve para consumo
+-- humano. El interprete *debe* ignorarlo (ie: no usarlo para calculo
+-- de 'Fingerprint's, nombres de tablas en base de datos, etc)
 describe
   :: Description
   -> Variable m t crs dim a
@@ -236,7 +209,7 @@ describe
 describe = Describe
 
 
--- | Devuelve la dimension de una variable
+-- | Devuelve la 'Dimension' de una 'Variable'
 dimension :: Variable m t crs dim a -> dim
 dimension RasterInput{rDimension}  = rDimension
 dimension PointInput{pDimension}   = pDimension
@@ -247,7 +220,7 @@ dimension (DimensionDependant _ d) = d
 -- Ahora mismo no podemos decir "la de la que se seleccione" porque
 -- esto es una funcion pura que no depende de si se puede generar o
 -- no.
--- Creo (AVG) que es "moralmente" correcto decir que la de la opcion
+-- Creo (AVG) que es "moralmente correcto" decir que la de la opcion
 -- ideal
 dimension (v :<|> _)               = dimension v
 dimension (Warp _ v)               = dimension v
@@ -266,10 +239,14 @@ dimension (ZipWith _ v _)          = dimension v
 
 
 
--- | Devuelve la huella de una variable.
+-- | Calcula la huella ('Fingerprint') de una variable.
 --
 --   Se garantiza que si la huella de una variable no ha cambiado
 --   el contenido tampoco.
+--
+--   El interprete *debe* calcular esto eficientemente para las
+--   entradas, cacheando agresivamente si puede ya que esto se
+--   hace muy a menudo.
 --
 --   La huella de las variables derivadas siempre se puede
 --   calcular sin calcular las variables en si
@@ -277,9 +254,8 @@ dimension (ZipWith _ v _)          = dimension v
 --   Ya sea por cambio en las entradas (eg: llegan nuevas
 --   observaciones de estacion, llega fichero corregido tras envio
 --   de fichero corrupto, etc) o por cambios en el codigo
---   (asumiendo que el Fingerprint de las funciones envueltas con 
---   WithFingerprint se genere correctamente).
---
+--   (asumiendo que el 'Fingerprint' de las funciones envueltas con 
+--   'WithFingerprint' se genere correctamente).
 getFingerprint
   :: Monad m
   => Variable m t crs dim a
@@ -307,14 +283,14 @@ getFingerprint (DimensionDependant f _)   =
 --   * Que una ejecucion del interprete produce entrada para
 --   la variable o no y esto no cambia dentro de la misma ejecucion
 --
---  Es decir, que se "porta bien".
+--  Es decir, que "se porta bien".
 --
 getFingerprint (v :<|> w)               = \ix ->
   getFingerprint v ix
   >>= either (const (getFingerprint w ix)) (return . Right)
 
--- La huella de las operaciones "builtin" es la huella de las
--- variables de entrada y de su configuracion.
+-- La huella de las operaciones intrinsecas es la huella de las
+-- variables de entrada combinada con la de la de su configuracion.
 getFingerprint (Warp s v)               = combineVarFPWith v s
 getFingerprint (Grid s v)               = combineVarFPWith v s
 getFingerprint (Rasterize s v)          = combineVarFPWith v s
@@ -325,7 +301,7 @@ getFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
 -- primer indice adaptado que devuelva huella
 --
 -- OJO: Asume que el interprete realmente ejecuta la primera opcion
---      valida, es decir, que se "porta bien".
+--      valida, es decir, que "se porta bien".
 --
 getFingerprint (AdaptDim _ fun v) = \ix ->
   let loop (x:xs) =
@@ -337,8 +313,8 @@ getFingerprint (AdaptDim _ fun v) = \ix ->
 getFingerprint (CheckPoint _ v) = getFingerprint v
 getFingerprint (Describe   _ v) = getFingerprint v
 
--- La huella de la aplicacion de una funcion unaria es la huella
--- de la variable de entrada combinada con la de adaptacion
+-- La huella de la aplicaciones es la huella de la funcion combinada
+-- con la de sus entradas.
 getFingerprint (Map f v)  = combineVarFPWith v f
 getFingerprint (ZipWith f v w) = combineVarsFPWith v w f
 
@@ -376,13 +352,14 @@ class (Monad m, Monad m') => Hoistable m m' where
 instance (Monad m, m ~ m') => Hoistable m m' where
   hoist = id
 
--- | Recorre todos los nodos del AST de la misma dimension en pre-orden 
---   (ie: procesa primero a los padres y luego a los hijos
---   de izquierda a derecha)
---   No desciende en los nodos AdaptDim porque no puede probar que el
---   indice dimensional es del mismo tipo. Es responsabilidad de la
---   funcion de reduccion descender si puede
---   (eg: getMissingInputs lo hace)
+-- | Recorre todos los nodos del AST de la misma dimension en
+-- pre-orden.
+--
+-- No desciende en los nodos AdaptDim porque al no existir
+-- adaptacion automatica de dimensiones no sabria por donde bajar.
+-- Es responsabilidad de la funcion de reduccion descender si puede
+-- (eg: 'getMissingInputs' lo puede hacer ya que conoce el indice
+-- dimensional)
 foldAST
   :: forall m t crs dim a b.
      ( Hoistable m m
@@ -423,14 +400,15 @@ foldAST f = go where
   go z v@(Map _ w)            = hoist (f z v >>= flip f w)
   go z v@(ZipWith _ w w')     = hoist (f z v >>= flip f w >>= flip f w')
 
+-- | Una entrada que falta con informacion asociada
 data MissingInput = MissingInput
   { missingIx      :: SomeDimensionIx
   , missingDesc    :: Description
   , missingError   :: LoadError
   } deriving Show
 
--- | Devuelve una lista con las descripciones de las entradas que no
---   se pueden generar
+-- | Devuelve una lista de 'MissingInput's con las entradas que
+-- impiden que una 'Variable' se genere.
 getMissingInputs
   :: forall m t crs dim a.
      (Monad m, IsVariable m t crs dim a)
@@ -525,6 +503,7 @@ getMissingInputs v0 ix = foldAST step [] v0 where
   step z (Map     _ v  ) = step z v
   step z (ZipWith _ v w) = step z v >>= flip step w
 
+-- | Crea un 'Doc' con el arbol de sintaxis de una variable
 prettyAST
   :: forall m t crs dim a. IsVariable m t crs dim a
   => Variable m t crs dim a -> Doc
@@ -577,5 +556,8 @@ prettyAST = go where
       (show (typeOf (undefined :: crs)))
       (show (typeOf (undefined :: dim)))
 
-instance IsVariable m t crs dim a
-  => Show (Variable m t crs dim a) where show = show . prettyAST
+
+-- | Implementacion por defecto para mostrar cualquier 'Variable'
+-- valida. Muestra su AST bonito.
+instance IsVariable m t crs dim a => Show (Variable m t crs dim a)
+  where show = show . prettyAST

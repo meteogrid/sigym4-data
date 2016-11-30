@@ -1,29 +1,33 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 module Sigym4.Data (
--- * Los distintos tipos de geometria de una variable
+-- * Tipos principales
+-- ** Los distintos tipos de geometria de una variable
   VariableType
 , RasterT
 , AreaT
 , LineT
 , PointT
 
--- * Restricciones que deben satisfacer las variables
+-- ** Restricciones que deben satisfacer todas las 'Variable's
 , IsVariable
+
+-- ** Restricciones que deben satisfacer todas las 'Variable's de
+-- entrada
 , IsRasterInput
 , IsVectorInput
 
--- * Constructores de 'Variable's y sus restricciones
+-- * Constructores de 'Variable's
 
 -- *** Adaptadores
 
 -- ** 'adaptDim'
-, CanAdaptDim
 , adaptDim
+, CanAdaptDim
 
 -- ** 'warp'
-, CanWarp
 , warp
+, CanWarp
 
 -- ** Alternativas
 
@@ -40,44 +44,40 @@ module Sigym4.Data (
 -- ** Conversiones entre tipos de 'Variable'
 
 -- *** 'grid'
-, CanGrid
 , grid
+, CanGrid
 
 -- *** 'rasterize'
-, CanRasterize
 , rasterize
+, CanRasterize
 
 -- *** 'sample'
-, CanSample
 , sample
+, CanSample
 
 -- *** 'aggregate'
-, CanAggregate
 , aggregate
+, CanAggregate
 
--- ** Metadatos de 'Variables'
-, checkpoint
-, describe
-
--- ** Generadores de nuevas variables a partir de otras o del
--- indice dimensional
+-- ** Generadores de nuevas variables a partir de otras o del indice dimensional
 , ofDimension
 , map
 , zipWith
 
+-- ** Metadatos de 'Variable's
+, checkpoint
+, describe
+
 -- * Otros tipos
--- ** 'MissingInput' es una entrada que falta calculada por
---   'getMissingInputs'
+-- ** 'MissingInput' es una entrada que falta calculada por 'getMissingInputs'
 , MissingInput (..)
 
--- ** 'LoadError' son los distintos tipos de error que pueden darse
---   al cargar una entrada.
+-- ** 'LoadError' son los errores que pueden darse al cargar una entrada.
 , LoadError (..)
 
 , Description
 
 -- * 'SomeDimensionIx' es una 'Dimension' y su 'DimensionIx' asociado
--- cuantificado exsitencialmente.
 , SomeDimensionIx (..)
 
 -- * Utilidades varias

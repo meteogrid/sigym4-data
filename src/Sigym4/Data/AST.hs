@@ -16,7 +16,6 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Sigym4.Data.AST where
 
-import           Sigym4.Data.Units
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 import           Sigym4.Geometry (Size, Extent, GeoReference, V2)
@@ -44,7 +43,7 @@ data VariableType
   -- | Una variable asociada a areas (2D)
   | AreaT
   -- | Una variable de rejilla donde cada pixel representa el
-  --   valor del *area* (cell value en terminologia VTK)
+  -- valor del *area* (cell value en terminologia VTK)
   | RasterT
 
 -- | Una 'Variable' (Store en terminologia Sigym3).
@@ -237,17 +236,13 @@ data Variable
 
   -- | Aplica una funcion unaria
   Map
-    :: ( HasUnits b (Exp m)
-       , IsVariable m t crs dim b
-       )
+    :: IsVariable m t crs dim b
     => WithFingerprint (Exp m b -> Exp m a)
     -> Variable m t crs dim b
     -> Variable m t crs dim a
 
   ZipWith
-    :: ( HasUnits b (Exp m)
-       , HasUnits c (Exp m)
-       , IsVariable m t crs dim b
+    :: ( IsVariable m t crs dim b
        , IsVariable m t crs dim c
        )
     => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
@@ -368,21 +363,61 @@ type family Exp           (m :: * -> *)       = (r :: * -> *)
 type Message = String
 
 data LoadError
-  -- La entrada aun no esta disponible
+
+  -- | La entrada aun no esta disponible, no hay nada que hacer...
   = NotAvailable
-  -- La entrada esta corrupta y no se debe volver a intentar
-  -- abrir hasta que algun operario lo arregle
+
+  -- | La entrada esta corrupta. El interprete es libre cachear este
+  -- resultado y no volver a intentar generar la variable hasta que
+  -- algun operario/proceso haga algo (eg: reemplazar la entrada por una
+  -- buena, volver a intentar descargar un fichero, etc...)
+  --
+  -- *NO* se debe meter a mano un fichero constante o algo similar.
+  -- Lo correcto es explicitamente reflejarlo en el sistema modificando
+  -- la variable para devolver la constante (o alternativa, ...)
+  -- cuando el indice dimensional este en la "lista negra".
+  --
+  -- Por ejemplo:
+  --
+  -- >>> import qualified Sigym4.Data as D
+  -- >>> let rota = undefined -- la variable con "agujeros" que queremos tapar
+  --         -- Inserta una alternativa que probara
+  --         arreglada = adaptDim (dimension rota) arreglador (D.const 0)
+  --                :<|> rota
+  --         arreglador _ ix
+  --           -- Si el indice pertenece a la lista negra decimos que es
+  --           -- valido para que se use la constante, si no decimos que
+  --           -- no hay adaptacion posible para que se use la variable
+  --           -- que arreglamos
+  --           | ix `elem` listaNegra = [ix]
+  --           | otherwise            = []
+  --        listaNegra = [...]
   | Corrupt         Message
-  -- La entrada no se puede cargar por algun problema transitorio.
-  -- Se debe reintentar abrir pasado algun tiempo si procede
+
+  -- | La entrada no se puede cargar por algun problema transitorio
+  -- (eg: problema de conectividad con servicios remotos, sobrecarga
+  -- en el sistema, etc...)
+  --
+  -- El interprete debe reintentar generar o cargar la variable pasado
+  -- algun tiempo si alguien vuelve a solicitarla.
   | TransitoryError Message
-  -- Hay algun problema interno y no se debe volver a intentar
-  -- abrir hasta que algun operario lo arregle
+
+  -- | Hay algun problema interno que el interprete esperaba.
+  --
+  -- El interprete es libre de cachear esta informacion y no volver
+  -- a intentar cargar esta variable hasta que algun operrario/proceso
+  -- lo arregle
   | InternalError   Message
-  -- Alguna adaptacion de dimension ha fallado
+
+  -- | Alguna adaptacion de dimension ha devuelto una lista vacia.
+  -- Esto es semanticamente lo mismo que 'NotAvailable' pero devolvemos
+  -- esto para dar mas informacion al usuario.
   | DimAdaptError
-  -- Alguna excepcion...
+
+  -- | Alguna excepcion que no hemos sabido gestionar. El interprete es
+  -- libre de hacer lo que quiera (probablemente sea su culpa)
   | LoadException   SomeException
+
   deriving Show
 
 instance {-# OVERLAPPABLE #-}
@@ -518,7 +553,6 @@ type IsRasterInput m crs dim a =
   , Dimension dim
   , Show dim
   , Show (DimensionIx dim)
-  , HasUnits a (Exp m)
   , IsRasterBand (RasterBand m crs a) m crs a
   )
 
@@ -527,7 +561,6 @@ type IsVectorInput m crs dim a =
   , Dimension dim
   , Show dim
   , Show (DimensionIx dim)
-  , HasUnits a (Exp m)
   , IsVectorLayer (VectorLayer m crs a) m crs a
   )
 
