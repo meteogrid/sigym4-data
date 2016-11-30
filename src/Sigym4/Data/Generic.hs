@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -365,41 +366,41 @@ combineVarsFPWith v w o ix = do
 foldAST
   :: forall m t crs dim a b.
      ( Monad m, IsVariable m t crs dim a )
-  => (forall t' dim' crs' a'.
-      ( DimensionIx dim ~ DimensionIx dim'
-      , IsVariable m t' crs' dim' a'
-      )
-      => b -> Variable m t' crs' dim' a' -> m b
-     )
+  => (forall t' crs' a'. IsVariable m t' crs' dim a'
+        => b -> Variable m t' crs' dim a' -> m b)
   -> b
   -> Variable m t crs dim a
   -> m b
-foldAST f = go where
+foldAST f = go maxDepth where
+  maxDepth = 100 :: Int
+
   go :: forall t' crs' a'.  IsVariable m t' crs' dim a'
-     => b
+     => Int
+     -> b
      -> Variable m t' crs' dim a'
      -> m b
-  go z v@RasterInput{}        = f z v
-  go z v@PointInput{}         = f z v
-  go z v@LineInput{}          = f z v
-  go z v@AreaInput{}          = f z v
-  go z v@Const{}              = f z v
-  go z v@DimensionDependant{} = f z v
-  go z (w :<|> w')            = foldAST f z w
-                            >>= flip (foldAST f) w'
-  go z (Warp _ w)           = foldAST f z w
-  go z (Grid _ w)           = foldAST f z w
-  go z (Rasterize _ w)      = foldAST f z w
-  go z (Sample _ w w')      = foldAST f z w
-                          >>= flip (foldAST f) w'
-  go z (Aggregate _ w w')   = foldAST f z w
-                         >>=  flip (foldAST f) w'
-  go z v@AdaptDim{}         = f z v
-  go z (CheckPoint _ w)     = foldAST f z w
-  go z (Describe   _ w)     = foldAST f z w
-  go z (Map _ w)            = foldAST f z w
-  go z (ZipWith _ w w')     = foldAST f z w
-                         >>=  flip (foldAST f) w'
+  go !n z _               | n==0 = return z
+  go !_ z v@RasterInput{}        = f z v
+  go !_ z v@PointInput{}         = f z v
+  go !_ z v@LineInput{}          = f z v
+  go !_ z v@AreaInput{}          = f z v
+  go !_ z v@Const{}              = f z v
+  go !_ z v@DimensionDependant{} = f z v
+  go !n z (w :<|> w')            = go (n-1) z w
+                               >>= flip (go (n-1)) w'
+  go !n z (Warp _ w)             = go (n-1) z w
+  go !n z (Grid _ w)             = go (n-1) z w
+  go !n z (Rasterize _ w)        = go (n-1) z w
+  go !n z (Sample _ w w')        = go (n-1) z w
+                               >>= flip (go (n-1)) w'
+  go !n z (Aggregate _ w w')     = go (n-1) z w
+                               >>=  flip (go (n-1)) w'
+  go !_ z v@AdaptDim{}           = f z v
+  go !n z (CheckPoint _ w)       = go (n-1) z w
+  go !n z (Describe   _ w)       = go (n-1) z w
+  go !n z (Map _ w)              = go (n-1) z w
+  go !n z (ZipWith _ w w')       = go (n-1) z w
+                               >>= flip (go (n-1)) w'
 
 -- | Una entrada que falta con informacion asociada
 data MissingInput = MissingInput
@@ -415,15 +416,21 @@ getMissingInputs
      (Monad m, IsVariable m t crs dim a)
   => Variable m t crs dim a -> DimensionIx dim
   -> m [MissingInput]
-getMissingInputs v0 ix = foldAST step [] v0 where
+getMissingInputs = getMissingInputs' 100
 
-  step :: forall t' crs' dim' a'.
-          ( DimensionIx dim ~  DimensionIx dim'
-          , IsVariable m t' crs' dim' a'
-          )
-      => [MissingInput]
-      -> Variable m t' crs' dim' a'
-      -> m [MissingInput]
+getMissingInputs'
+  :: forall m t crs dim a.
+     (Monad m, IsVariable m t crs dim a)
+  => Int -> Variable m t crs dim a -> DimensionIx dim
+  -> m [MissingInput]
+getMissingInputs' !n _  _  | n<=0 = return []
+getMissingInputs' !n v0 ix = foldAST step [] v0 where
+
+  step :: forall t' crs' a'. IsVariable m t' crs' dim a'
+       => [MissingInput]
+       -> Variable m t' crs' dim a'
+       -> m [MissingInput]
+
 
   step z RasterInput{rLoad,rDescription,rDimension} = do
     r <- rLoad ix
@@ -466,7 +473,7 @@ getMissingInputs v0 ix = foldAST step [] v0 where
         in mi : z
 
   -- Que bien, estas nunca faltan
-  step z Const{} = return z
+  step z Const{}              = return z
   step z DimensionDependant{} = return z
 
   -- Las entradas que faltan en una alternativa son las primeras que
@@ -480,12 +487,12 @@ getMissingInputs v0 ix = foldAST step [] v0 where
       then return z
       else step (z <> z') w
 
-  step z (Warp _ v) = step z v
-  step z (Grid _ v) = step z v
-  step z (Rasterize _ v) = step z v
+  step z (Warp _ v)        = step z v
+  step z (Grid _ v)        = step z v
+  step z (Rasterize _ v)   = step z v
 
-  step z (Sample    _ v w) = step z v >>= flip step w
-  step z (Aggregate _ v w) = step z v >>= flip step w
+  step z (Sample    _ v w) = step z v >>= flip (step) w
+  step z (Aggregate _ v w) = step z v >>= flip (step) w
 
   step z ad@(AdaptDim d f v) =
     case f (dimension v) ix of
@@ -507,14 +514,14 @@ getMissingInputs v0 ix = foldAST step [] v0 where
                   (description v) DimAdaptError 
             in return (mi : z)
           loop (ix':xs') _  = do
-            z' <- getMissingInputs v ix'
+            z' <- getMissingInputs' (n-1) v ix' --FIXME
             if null z'
               then -- hay una opcion posible, decimos que no falta nada 
                 return []
               else -- seguimos probando
                 loop xs' ix'
 
-  step z (CheckPoint _ v) = step z v
-  step z (Describe   _ v) = step z v
-  step z (Map        _ v) = step z v
+  step z (CheckPoint _ v)   = step z v
+  step z (Describe   _ v)   = step z v
+  step z (Map        _ v)   = step z v
   step z (ZipWith    _ v w) = step z v >>= flip step w

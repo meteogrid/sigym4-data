@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DeriveDataTypeable #-}
@@ -653,52 +654,68 @@ class Storable a => HasReadBlock b m a | b -> m, b -> a where
 
 -- | Crea un 'Doc' con el arbol de sintaxis de una variable
 prettyAST
-  :: forall m t crs dim a. IsVariable m t crs dim a
+  :: IsVariable m t crs dim a
   => Variable m t crs dim a -> Doc
-prettyAST = go where
-  go, prettyVarType :: Variable m t crs dim a -> Doc
-  go RasterInput{rDescription,rDimension} = withBullet
+prettyAST = go maxDepth where
+  maxDepth = 100 :: Int
+  go, goN :: forall m t crs dim a. IsVariable m t crs dim a
+          => Int -> Variable m t crs dim a -> Doc
+  goN !n = go (n-1)
+  go !n _ | n==0 = nest 2 "..."
+  go !_ RasterInput{rDescription,rDimension} = withBullet
     "RasterInput" <+> doubleQuotes (text (T.unpack rDescription))
                   <+> parens (text (show rDimension))
-  go PointInput{pDescription,pDimension} = withBullet
+  go !_ PointInput{pDescription,pDimension} = withBullet
     "PointInput" <+> doubleQuotes (text (T.unpack pDescription))
                  <+> parens (text (show pDimension))
-  go LineInput{lDescription,lDimension} = withBullet
+  go !_ LineInput{lDescription,lDimension} = withBullet
     "PointInput" <+> doubleQuotes (text (T.unpack lDescription))
                  <+> parens (text (show lDimension))
-  go AreaInput{aDescription,aDimension} = withBullet
+  go !_ AreaInput{aDescription,aDimension} = withBullet
     "AreaInput" <+> doubleQuotes (text (T.unpack aDescription))
                 <+> parens (text (show aDimension))
-  go (DimensionDependant _ dim) =
+  go !_ (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
-  go (Const v) = "Constant" <+> text (show v)
-  go (s1 :<|> s2) =
-    nextVar (go s1) $+$ ":<|>" $+$ nextVar (go s2)
-  go (Warp s1 s2) =
-    withBullet "Warp" <+> text (show s1) $$ nextVar (prettyAST s2)
-  go (Grid s1 s2) =
-    withBullet "Grid" <+> text (show s1) $$ nextVar (prettyAST s2)
-  go (Rasterize s1 s2) =
-    withBullet "Rasterize" <+> text (show s1) $$ nextVar (prettyAST s2)
-  go (Sample s1 _ s2) =
-    withBullet "Sample" <+> text (show s1) $$ nextVar (prettyAST s2)
-  go (Aggregate s1 _ s2) =
-    withBullet "Aggregate" <+> text (show s1) $$ nextVar (prettyAST s2)
-  go (AdaptDim dim _ s2) =
-    withBullet "AdaptDim" <+> text (show dim) $$ nextVar (prettyAST s2)
-  go (CheckPoint _ s2) =
-    withBullet "CheckPoint" $$ nextVar (prettyAST s2)
-  go (Describe desc var) =
+  go !_ (Const v) = "Constant" <+> text (show v)
+  go !n (s1 :<|> s2) =
+    nextVar (goN n s1) $+$ ":<|>" $+$ nextVar (goN n s2)
+  go !n (Warp s1 s2) =
+    withBullet "Warp" <+> text (show s1) $$
+      nextVar (goN n s2)
+  go !n (Grid s1 s2) =
+    withBullet "Grid" <+> text (show s1) $$
+      nextVar (goN n s2)
+  go !n (Rasterize s1 s2) =
+    withBullet "Rasterize" <+> text (show s1) $$
+      nextVar (goN n s2)
+  go !n (Sample s1 _ s2) =
+    withBullet "Sample" <+> text (show s1) $$
+      nextVar (goN n s2)
+  go !n (Aggregate s1 _ s2) =
+    withBullet "Aggregate" <+> text (show s1) $$
+      nextVar (goN n s2)
+  go !n (AdaptDim dim _ s2) =
+    withBullet "AdaptDim" <+> text (show dim) $$
+      nextVar (goN n s2)
+  go !n (CheckPoint _ s2) =
+    withBullet "CheckPoint" $$
+      nextVar (goN n s2)
+  go !n (Describe desc var) =
     text (T.unpack desc) <+> prettyVarType var $+$
-      nextVar (prettyAST var)
-  go (Map _ s2) =
-    withBullet "Map" $$ nextVar (prettyAST s2)
-  go (ZipWith _ a b) =
-    withBullet "ZipWith" $$ nextVar (prettyAST a) $$ nextVar (prettyAST b)
+      nextVar (goN n var)
+  go !n (Map _ s2) =
+    withBullet "Map" $$ nextVar (goN n s2)
+  go !n (ZipWith _ a b) =
+    withBullet "ZipWith" $+$
+      nextVar (goN n a) $+$
+      nextVar (goN n b)
 
   nextVar = nest 2
   withBullet = ("*" <+>)
 
+  prettyVarType
+    :: forall m t crs dim a. IsVariable m t crs dim a
+    => Variable m t crs dim a -> Doc
   prettyVarType _ =
     text $ printf ":: %s (%s, %s)"
       (show (typeOf (undefined :: a)))

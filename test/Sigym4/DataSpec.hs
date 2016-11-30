@@ -52,6 +52,10 @@ spec = do
     it "shows dimension" $ do
       show (prettyAST v) `shouldSatisfy` isInfixOf "0 0 * * *"
 
+    it "handles cycles" $ do
+      let v' = D.zipWith ([fp|v1|] (+)) v v'
+      show (prettyAST v') `shouldSatisfy` isInfixOf "..."
+
     describe "only shows type of \"describe\" nodes" $ do
       let v' = D.describe "una variable" v
 
@@ -106,14 +110,21 @@ spec = do
       show (prettyAST tErr) `shouldSatisfy` isInfixOf "AdaptDim"
       show (prettyAST tErr) `shouldSatisfy` isInfixOf "ZipWith"
 
-    it "can calculate missing inputs" $ do
-      let ix = Hour 6 :* datetime 2016 11 28 0 0
-          missing = runDummy (getMissingInputs tErr ix)
-      length missing `shouldBe` 2
-      map missingIx missing `shouldMatchList` [
-          SomeDimensionIx (dimension tObs)  (datetime 2016 11 28 6 0)
-        , SomeDimensionIx (dimension tPred) ix
-        ]
+    describe "getMissingInputs" $ do
+      it "can calculate" $ do
+        let ix = Hour 6 :* datetime 2016 11 28 0 0
+            missing = runDummy (getMissingInputs tErr ix)
+        length missing `shouldBe` 2
+        map missingIx missing `shouldMatchList` [
+            SomeDimensionIx (dimension tObs)  (datetime 2016 11 28 6 0)
+          , SomeDimensionIx (dimension tPred) ix
+          ]
+
+      it "handles cycles" $ do
+        let ix = Hour 6 :* datetime 2016 11 28 0 0
+            missing = runDummy (getMissingInputs v' ix)
+            v' = D.zipWith ([fp|v1|] (+)) tErr v'
+        length missing `shouldSatisfy` (>0)
 
 
     it "marks failed adaptation as missing input" $ do
