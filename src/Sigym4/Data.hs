@@ -2,8 +2,10 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 module Sigym4.Data (
 -- * Tipos principales
+  Variable ((:<|>))
+
 -- ** Los distintos tipos de geometria de una variable
-  VariableType
+, VariableType
 , RasterT
 , AreaT
 , LineT
@@ -19,13 +21,13 @@ module Sigym4.Data (
 
 -- * Constructores de 'Variable's
 
--- *** Adaptadores
+-- ** Adaptadores
 
--- ** 'adaptDim'
+-- *** 'adaptDim'
 , adaptDim
 , CanAdaptDim
 
--- ** 'warp'
+-- *** 'warp'
 , warp
 , CanWarp
 
@@ -39,7 +41,7 @@ module Sigym4.Data (
 --    = (opcion1 :<|> opcion2) :<|> opcion3
 --    = opcion1 :<|> opcion2 :<|> opcion3
 
-, Variable ((:<|>))
+-- *** ':<|>'
 
 -- ** Conversiones entre tipos de 'Variable'
 
@@ -59,32 +61,42 @@ module Sigym4.Data (
 , aggregate
 , CanAggregate
 
--- ** Generadores de nuevas variables a partir de otras o del indice dimensional
+-- ** 'Variable's puras
+-- *** 'const'
+, const
+-- *** 'ofDimension'
 , ofDimension
+
+-- ** Combinadores de variables
+-- *** 'map'
 , map
+-- *** 'zipWith'
 , zipWith
 
 -- ** Metadatos de 'Variable's
+-- *** 'checkpoint'
 , checkpoint
+-- *** 'describe'
 , describe
 
 -- * Otros tipos
--- ** 'MissingInput' es una entrada que falta calculada por 'getMissingInputs'
+-- ** 'MissingInput'
 , MissingInput (..)
 
--- ** 'LoadError' son los errores que pueden darse al cargar una entrada.
+-- ** 'LoadError'
 , LoadError (..)
 
+-- ** 'Description'
 , Description
 
--- * 'SomeDimensionIx' es una 'Dimension' y su 'DimensionIx' asociado
+-- ** 'SomeDimensionIx'
 , SomeDimensionIx (..)
 
 -- * Utilidades varias
 , getMissingInputs
+, getFingerprint
 , prettyAST
 , dimension
-, getFingerprint
 
 -- * Tipos re-exportados
 , Storable

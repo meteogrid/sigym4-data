@@ -4,6 +4,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE KindSignatures #-}
@@ -24,37 +26,70 @@ import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
-import           Data.Text (Text)
 import           Data.Default
 import           Data.Function ( on )
+import           Data.Monoid ( (<>) )
+import           Data.String ( fromString )
 import           Data.Typeable
+import           Data.Text (Text)
+import qualified Data.Text as T
 import           Data.Vector.Storable ( Vector, Storable )
 import           GHC.TypeLits
+import           Text.PrettyPrint hiding ((<>))
+import           Text.Printf (printf)
 
 
 
 -- | Indexa las 'Variable's por tipo de "geometria"
 
 data VariableType
-  -- | Una variable asociada a puntos (0D)
   = PointT
-  -- | Una variable asociada a lineas (1D)
   | LineT
-  -- | Una variable asociada a areas (2D)
   | AreaT
-  -- | Una variable de rejilla donde cada pixel representa el
-  -- valor del *area* (cell value en terminologia VTK)
   | RasterT
+
+-- | Una variable de rejilla donde cada pixel representa el
+-- valor del *area* cubierta por dicho pixel reproyectado al
+-- terreno ("cell value" en la terminologia que usa VTK)
+type RasterT = 'RasterT
+
+-- | Una variable asociada a puntos (0D)
+type PointT = 'PointT
+
+-- | Una variable asociada a lineas (1D)
+type LineT = 'LineT
+
+-- | Una variable asociada a areas (2D)
+type AreaT = 'AreaT
+
 
 -- | Una 'Variable' (Store en terminologia Sigym3).
 --
---  Representa el AST del algebra de composicion de variables.
+--  Describe el algebra de composicion de variables.
 --
+--  Debe garantizar que si una variable se puede describir
+--  (ie: "typechecks") y cargar entonces el interprete
+--  producira un resultado (modulo _|_)
+--
+--  Que el interprete finalice ("something, something halting problem")
+--  o que el resultado sea el esperado dependera unicamente de si se ha
+--  descrito realmente lo que se queria. Para ello seguimos necesitando
+--  humanos.
 data Variable
+  -- 'm' es el interprete
   (m :: * -> *)
+  -- 't' es la geometria de la variable
   (t :: VariableType)
+  -- 'crs' es el sistema de referencia de coordenadas.
   crs
+  -- 'dim' es la dimension que indexa los productos de las variables.
+  -- '()' para una variable estatica, 'Observation', 'Prediction', etc..
+  -- La unica restriccion es que el tipo sea instancia de 'Dimension'
   dim
+  -- 'a' es el tipo principal de la variable que dependera del dominio.
+  -- En Sigym4 intentaremos siempre usar instancias de 'HasUnits' para
+  -- disfrutar de conversion automatica de unidades compatibles y mas seguridad
+  -- el la definicion de variables vigilada por el compilador.
   a
   where
 
@@ -114,6 +149,14 @@ data Variable
        }
     -> Variable m AreaT crs dim a
 
+
+  -- | Una variable constante
+  Const
+    :: ( NFData a
+       , HasFingerprint a
+       , Show a
+       )
+    => a -> Variable m t crs () a
 
   -- | Una variable que solo depende de la dimension
   DimensionDependant
@@ -266,6 +309,8 @@ type CanAdaptDim m t crs dim' dim a =
   , NFData dim'
   , Show dim
   , Show (DimensionIx dim)
+  , Show dim'
+  , Show (DimensionIx dim')
   , IsVariable m t crs dim' a
   )
 
@@ -317,8 +362,7 @@ type CanAggregate m t crs crs' dim a b =
   )
 
 deriving instance Typeable (Variable m t crs dim a)
-instance ( NFData dim
-         ) => NFData (Variable m t crs dim a)
+instance NFData dim => NFData (Variable m t crs dim a)
   where
 
   rnf RasterInput {rLoad,rFingerprint,rDimension,rDescription} =
@@ -337,6 +381,7 @@ instance ( NFData dim
     rnf aLoad `seq` rnf aFingerprint
               `seq` rnf aDimension
               `seq` rnf aDescription
+  rnf (Const v) = rnf v
   rnf (DimensionDependant v1 v2) = rnf v1 `seq` rnf v2
   rnf (v1 :<|> v2) = rnf v1 `seq` rnf v2
   rnf (Warp v1 v2) = rnf v1 `seq` rnf v2
@@ -351,11 +396,6 @@ instance ( NFData dim
   rnf (ZipWith v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
 
 
-type RasterT = 'RasterT
-type PointT = 'PointT
-type LineT = 'LineT
-type AreaT = 'AreaT
-
 type family RasterBand    (m :: * -> *) crs a = r | r -> m crs a
 type family VectorLayer   (m :: * -> *) crs a = r | r -> m crs a
 type family Exp           (m :: * -> *)       = (r :: * -> *)
@@ -368,7 +408,7 @@ data LoadError
   = NotAvailable
 
   -- | La entrada esta corrupta. El interprete es libre cachear este
-  -- resultado y no volver a intentar generar la variable hasta que
+  -- hecho y no volver a intentar generar la 'Variable' hasta que
   -- algun operario/proceso haga algo (eg: reemplazar la entrada por una
   -- buena, volver a intentar descargar un fichero, etc...)
   --
@@ -608,3 +648,84 @@ type BlockIndex = Size V2
 
 class Storable a => HasReadBlock b m a | b -> m, b -> a where
   readBlock :: b -> BlockIndex -> m (Vector a)
+
+
+
+-- | Crea un 'Doc' con el arbol de sintaxis de una variable
+prettyAST
+  :: forall m t crs dim a. IsVariable m t crs dim a
+  => Variable m t crs dim a -> Doc
+prettyAST = go where
+  go, prettyVarType :: Variable m t crs dim a -> Doc
+  go RasterInput{rDescription,rDimension} = withBullet
+    "RasterInput" <+> doubleQuotes (text (T.unpack rDescription))
+                  <+> parens (text (show rDimension))
+  go PointInput{pDescription,pDimension} = withBullet
+    "PointInput" <+> doubleQuotes (text (T.unpack pDescription))
+                 <+> parens (text (show pDimension))
+  go LineInput{lDescription,lDimension} = withBullet
+    "PointInput" <+> doubleQuotes (text (T.unpack lDescription))
+                 <+> parens (text (show lDimension))
+  go AreaInput{aDescription,aDimension} = withBullet
+    "AreaInput" <+> doubleQuotes (text (T.unpack aDescription))
+                <+> parens (text (show aDimension))
+  go (DimensionDependant _ dim) =
+    "DimensionDependant" <+> (text (show dim))
+  go (Const v) = "Constant" <+> text (show v)
+  go (s1 :<|> s2) =
+    nextVar (go s1) $+$ ":<|>" $+$ nextVar (go s2)
+  go (Warp s1 s2) =
+    withBullet "Warp" <+> text (show s1) $$ nextVar (prettyAST s2)
+  go (Grid s1 s2) =
+    withBullet "Grid" <+> text (show s1) $$ nextVar (prettyAST s2)
+  go (Rasterize s1 s2) =
+    withBullet "Rasterize" <+> text (show s1) $$ nextVar (prettyAST s2)
+  go (Sample s1 _ s2) =
+    withBullet "Sample" <+> text (show s1) $$ nextVar (prettyAST s2)
+  go (Aggregate s1 _ s2) =
+    withBullet "Aggregate" <+> text (show s1) $$ nextVar (prettyAST s2)
+  go (AdaptDim dim _ s2) =
+    withBullet "AdaptDim" <+> text (show dim) $$ nextVar (prettyAST s2)
+  go (CheckPoint _ s2) =
+    withBullet "CheckPoint" $$ nextVar (prettyAST s2)
+  go (Describe desc var) =
+    text (T.unpack desc) <+> prettyVarType var $+$
+      nextVar (prettyAST var)
+  go (Map _ s2) =
+    withBullet "Map" $$ nextVar (prettyAST s2)
+  go (ZipWith _ a b) =
+    withBullet "ZipWith" $$ nextVar (prettyAST a) $$ nextVar (prettyAST b)
+
+  nextVar = nest 2
+  withBullet = ("*" <+>)
+
+  prettyVarType _ =
+    text $ printf ":: %s (%s, %s)"
+      (show (typeOf (undefined :: a)))
+      (show (typeOf (undefined :: crs)))
+      (show (typeOf (undefined :: dim)))
+
+
+-- | Implementacion por defecto para mostrar cualquier 'Variable'
+-- valida. Muestra su AST bonito.
+instance IsVariable m t crs dim a => Show (Variable m t crs dim a)
+  where show = show . prettyAST
+
+instance HasDescription (Variable m t crs dim a) where
+  description RasterInput {rDescription} = rDescription
+  description PointInput {pDescription} = pDescription
+  description LineInput {lDescription} = lDescription
+  description AreaInput {aDescription} = aDescription
+  description (Const v) = "Constant " <> fromString (show v)
+  description (DimensionDependant _ _) = "Function of dimension"
+  description (v :<|> w) = description v <> " or " <> description w
+  description (Warp _ v) = "Warped " <> description v
+  description (Grid _ v) = "Gridded " <> description v
+  description (Rasterize _ v) = "Rasterized " <> description v
+  description (Sample _ v w) = description w <> " sampled over " <> description v
+  description (Aggregate _ v w) = description w <> " aggregated over " <> description v
+  description (AdaptDim d _ w) = description w <> " adapted to " <> fromString (show d)
+  description (CheckPoint _ w) = "CheckPoint for " <> description w
+  description (Describe v _) = v
+  description (Map _ v) = "Function of " <> description v
+  description (ZipWith _ v w) = "Function of " <> description v <> " and " <> description w

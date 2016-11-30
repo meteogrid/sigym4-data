@@ -12,7 +12,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Sigym4.DataSpec ( spec, main ) where
 
-import           Sigym4.Data hiding (describe, map)
+import           Sigym4.Data hiding (describe, map, const)
 import qualified Sigym4.Data as D
 import qualified Sigym4.Data.AST as AST
 import           Sigym4.Data.Units
@@ -118,13 +118,14 @@ spec = do
 
     it "marks failed adaptation as missing input" $ do
       let tPredGood = tPred {
-            AST.rLoad = return . const (Right undefied)
+            AST.rLoad = return . const (Right undefined)
           }
           tObsBad = adaptDim (dimension tPred) badAdaptor tObs
-          badAdaptor _ _ = []
+            where badAdaptor _ _ = []
+          tPredBad = D.describe "predErr" $
+                      D.zipWith sqErr tObsBad tPredGood
           ix = Hour 6 :* datetime 2016 11 28 0 0
-          missing = runDummy (getMissingInputs tObsBad ix)
-      length missing `shouldBe` 1
+          missing = runDummy (getMissingInputs tPredBad ix)
       map missingIx missing `shouldMatchList` [
           SomeDimensionIx (dimension tPred) ix
         ]
