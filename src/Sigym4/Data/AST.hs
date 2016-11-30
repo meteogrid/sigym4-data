@@ -37,9 +37,11 @@ import           GHC.TypeLits
 -- | Indexa las 'Variable's por tipo de "geometria"
 
 data VariableType
-  -- | Una variable asociada a puntos
+  -- | Una variable asociada a puntos (0D)
   = PointT
-  -- | Una variable asociada a areas (poligonos, multipoligonos..)
+  -- | Una variable asociada a lineas (1D)
+  | LineT
+  -- | Una variable asociada a areas (2D)
   | AreaT
   -- | Una variable de rejilla donde cada pixel representa el
   --   valor del *area* (cell value en terminologia VTK)
@@ -79,13 +81,7 @@ data Variable
 
   -- | Una variable de entrada de puntos
   PointInput
-    :: ( KnownCrs crs
-       , Dimension dim
-       , Show dim
-       , Show (DimensionIx dim)
-       , HasUnits a (Exp m)
-       , IsVectorLayer (VectorLayer m crs a) m crs a
-       )
+    :: IsVectorInput m crs dim a
     => { pLoad        :: DimensionIx dim
                       -> m (Either LoadError (VectorLayer m crs a))
        , pFingerprint :: DimensionIx dim
@@ -95,14 +91,21 @@ data Variable
        }
     -> Variable m PointT crs dim a
 
+  -- | Una variable de entrada de lineas
+  LineInput 
+    :: IsVectorInput m crs dim a
+    => { lLoad        :: DimensionIx dim
+                      -> m (Either LoadError (VectorLayer m crs a))
+       , lFingerprint :: DimensionIx dim
+                      -> m (Either LoadError Fingerprint)
+       , lDimension   :: dim
+       , lDescription :: Description
+       }
+    -> Variable m LineT crs dim a
+
   -- | Una variable de entrada de areas
   AreaInput 
-    :: ( KnownCrs crs
-       , Dimension dim
-       , Show dim
-       , Show (DimensionIx dim)
-       , HasUnits a (Exp m)
-       )
+    :: IsVectorInput m crs dim a
     => { aLoad        :: DimensionIx dim
                       -> m (Either LoadError (VectorLayer m crs a))
        , aFingerprint :: DimensionIx dim
@@ -138,11 +141,7 @@ data Variable
   --   use el algoritmo de resampleo por defecto (vecino mas cercano)
   --   para adaptar distintas resoluciones.
   Warp
-    :: ( KnownCrs crs
-       , KnownCrs crs'
-       , Warpable m t a
-       , Typeable (Variable m t crs' dim a)
-       )
+    :: CanWarp m t crs crs' dim a
     => WarpSettings m t          a
     -> Variable     m t crs' dim a
     -> Variable     m t crs  dim a
@@ -153,11 +152,7 @@ data Variable
   --   Los puntos se reproyectan automaticamente al crs de salida
   --   antes de interpolar
   Grid
-    :: ( KnownCrs crs
-       , KnownCrs crs'
-       , Griddable m t' a
-       , Typeable (Variable m t' crs' dim a)
-       )
+    :: CanGrid m t' crs crs' dim a
     => GridSettings  m t'               a
     -> Variable      m t'      crs' dim a
     -> Variable      m RasterT crs  dim a
@@ -166,11 +161,7 @@ data Variable
   --
   --   La entrada se reproyecta automaticamente al crs de salida
   Rasterize
-    :: ( KnownCrs crs
-       , KnownCrs crs'
-       , Rasterizable m t' a
-       , Typeable (Variable m t' crs' dim a)
-       )
+    :: CanRasterize m t' crs crs' dim a
     => RasterizeSettings  m t'               a
     -> Variable           m t'      crs' dim a
     -> Variable           m RasterT crs  dim a
@@ -184,13 +175,9 @@ data Variable
   --   Los puntos de entrada se reproyectan automaticamente al crs
   --   de entrada. Para Tener mas control usar Warp
   Sample
-    :: ( KnownCrs crs
-       , KnownCrs crs'
-       , Sampleable m t' a
-       , Typeable (Variable m t' crs' dim a)
-       )
+    :: CanSample m t' crs crs' dim a b
     => SampleSettings       m t'                a
-    -> Variable             m PointT   crs  dim any
+    -> Variable             m PointT   crs  dim b
     -> Variable             m t'       crs' dim a
     -> Variable             m PointT   crs  dim a
   
@@ -203,13 +190,9 @@ data Variable
   --   Los poligonos de entrada se reproyectan automaticamente al crs
   --   de entrada
   Aggregate
-    :: ( KnownCrs crs
-       , KnownCrs crs'
-       , Aggregable m t' a
-       , Typeable (Variable m t' crs' dim a)
-       )
+    :: CanAggregate m t' crs crs' dim a b
     => AggregateSettings m t'               a
-    -> Variable          m AreaT   crs  dim any
+    -> Variable          m AreaT   crs  dim b
     -> Variable          m t'      crs' dim a
     -> Variable          m AreaT   crs  dim a
     
@@ -255,7 +238,7 @@ data Variable
   -- | Aplica una funcion unaria
   Map
     :: ( HasUnits b (Exp m)
-       , Typeable (Variable m t crs dim b)
+       , IsVariable m t crs dim b
        )
     => WithFingerprint (Exp m b -> Exp m a)
     -> Variable m t crs dim b
@@ -264,21 +247,78 @@ data Variable
   ZipWith
     :: ( HasUnits b (Exp m)
        , HasUnits c (Exp m)
-       , Typeable (Variable m t crs dim b)
-       , Typeable (Variable m t crs dim c)
+       , IsVariable m t crs dim b
+       , IsVariable m t crs dim c
        )
     => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
     -> Variable m t crs dim b
     -> Variable m t crs dim c
     -> Variable m t crs dim a
 
+
+-- | Restriccion que deben satisfacer todas las 'Variable's
+type IsVariable m t crs dim a  =
+  ( Typeable (Variable m t crs dim a)
+  , Typeable m, Typeable t, Typeable crs, Typeable dim, Typeable a
+  , HasDescription (Variable m t crs dim a)
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   adaptar sus indices dimensionales
 type CanAdaptDim m t crs dim' dim a =
   ( Dimension dim
   , Dimension dim'
   , NFData dim'
   , Show dim
   , Show (DimensionIx dim)
-  , Typeable (Variable m t crs dim' a)
+  , IsVariable m t crs dim' a
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   reproyectar (o resamplear) a otro sistema de coordenadas (o resolucion)
+type CanWarp m t crs crs' dim a =
+  ( KnownCrs crs
+  , KnownCrs crs'
+  , Warpable m t a
+  , IsVariable m t crs' dim a
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   interpolar a una rejilla
+type CanGrid m t crs crs' dim a =
+  ( KnownCrs crs
+  , KnownCrs crs'
+  , Griddable  m t a
+  , IsVariable m t crs' dim a
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   rasterizar
+type CanRasterize m t crs crs' dim a =
+  ( KnownCrs crs
+  , KnownCrs crs'
+  , Rasterizable m t  a
+  , IsVariable m t  crs' dim a
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   samplear en puntos (0D)
+type CanSample m t crs crs' dim a b =
+  ( KnownCrs crs
+  , KnownCrs crs'
+  , Sampleable m t               a
+  , IsVariable m PointT crs  dim b
+  , IsVariable m t      crs' dim a
+  )
+
+-- | Restriccion que deben satisfacer las 'Variable's que podemos
+--   agregar bajo geometrias (1D o 2D)
+type CanAggregate m t crs crs' dim a b =
+  ( KnownCrs crs
+  , KnownCrs crs'
+  , Aggregable m t              a
+  , IsVariable m AreaT crs  dim b
+  , IsVariable m t     crs' dim a
   )
 
 deriving instance Typeable (Variable m t crs dim a)
@@ -294,6 +334,10 @@ instance ( NFData dim
     rnf pLoad `seq` rnf pFingerprint
               `seq` rnf pDimension
               `seq` rnf pDescription
+  rnf LineInput {lLoad,lFingerprint,lDimension,lDescription} =
+    rnf lLoad `seq` rnf lFingerprint
+              `seq` rnf lDimension
+              `seq` rnf lDescription
   rnf AreaInput {aLoad,aFingerprint,aDimension,aDescription} =
     rnf aLoad `seq` rnf aFingerprint
               `seq` rnf aDimension
@@ -314,6 +358,7 @@ instance ( NFData dim
 
 type RasterT = 'RasterT
 type PointT = 'PointT
+type LineT = 'LineT
 type AreaT = 'AreaT
 
 type family RasterBand    (m :: * -> *) crs a = r | r -> m crs a
@@ -334,9 +379,8 @@ data LoadError
   -- Hay algun problema interno y no se debe volver a intentar
   -- abrir hasta que algun operario lo arregle
   | InternalError   Message
-  -- El paso no esta bien configurado y alguna adaptacion de dimension ha
-  -- fallado
-  | DimAdaptError   Description SomeDimensionIx
+  -- Alguna adaptacion de dimension ha fallado
+  | DimAdaptError
   -- Alguna excepcion...
   | LoadException   SomeException
   deriving Show
@@ -478,11 +522,18 @@ type IsRasterInput m crs dim a =
   , IsRasterBand (RasterBand m crs a) m crs a
   )
 
+type IsVectorInput m crs dim a =
+  ( KnownCrs crs
+  , Dimension dim
+  , Show dim
+  , Show (DimensionIx dim)
+  , HasUnits a (Exp m)
+  , IsVectorLayer (VectorLayer m crs a) m crs a
+  )
 
 type IsRasterBand b m crs a =
   ( HasBlockSize    b m
   , HasNodataValue  b m     a
-  , HasDescription  b m
   , HasCrs          b m
   , HasRasterSize   b m
   , HasGeoReference b m crs
@@ -492,7 +543,6 @@ type IsRasterBand b m crs a =
 
 type IsVectorLayer l m crs a =
   ( HasCrs          l m
-  , HasDescription  l m
   , HasExtent       l   (Extent V2 crs)
   ) -- TBD
 
@@ -514,8 +564,8 @@ class HasGeoReference b m crs | b -> m, b -> crs where
 
 type Description = Text
 
-class HasDescription b m | b -> m  where
-  description :: b -> m Description
+class HasDescription b where
+  description :: b -> Description
 
 class HasSourceFingerprint m where
   sourceFingerprint :: m Fingerprint

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -8,26 +9,74 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Sigym4.Data.Generic (
-  Variable ((:<|>))
-, VariableType (..)
-, MissingInput (..)
+-- * 'Variable' y sus tipos
+  Variable
+, VariableType
 , RasterT
 , AreaT
+, LineT
 , PointT
 
--- * Constructores de nodos del AST y sus restricciones
+-- * Restricciones que deben satisfacer las variables
+, IsVariable
+, IsRasterInput
+, IsVectorInput
+
+-- * 'MissingInput' es una entrada que falta calculada por
+--   'getMissingInputs'
+, MissingInput (..)
+
+-- * Constructores de 'Variable's y sus restricciones
+
+-- *** Adaptadores
+
+-- ** 'adaptDim'
 , CanAdaptDim
 , adaptDim
 
-, ofDimension
+-- ** 'warp'
+, CanWarp
 , warp
+
+-- ** Alternativas
+
+-- | Selecciona la primera variable si esta disponible, sino la segunda.
+--
+--   Es un operador asociativo y se puede encadenar, ie:
+--
+--   >>> opcion1 :<|> (opcion2 :<|> opcion3)
+--    = (opcion1 :<|> opcion2) :<|> opcion3
+--    = opcion1 :<|> opcion2 :<|> opcion3
+
+, Variable ((:<|>))
+
+-- ** Conversiones entre tipos de 'Variable'
+
+-- *** 'grid'
+, CanGrid
 , grid
+
+-- *** 'rasterize'
+, CanRasterize
 , rasterize
+
+-- *** 'sample'
+, CanSample
 , sample
+
+-- *** 'aggregate'
+, CanAggregate
 , aggregate
+
+-- ** Metadatos de 'Variables'
 , checkpoint
 , describe
+
+-- ** Generadores de nuevas variables a partir de otras o del
+-- indice dimensional
+, ofDimension
 , map
 , zipWith
 
@@ -36,23 +85,19 @@ module Sigym4.Data.Generic (
 , prettyAST
 , dimension
 , getFingerprint
-, isInput
-, isDerived
 
--- * Utilidades semi-internas para analisis de AST
-, foldAST
 ) where
 
 import           Sigym4.Data.AST as AST
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Data.Units
 import           Sigym4.Dimension
-import           SpatialReference
 
 import qualified Data.Text as T
 import           Data.Monoid ((<>))
-import           Data.Typeable ( Typeable, typeOf )
+import           Data.Typeable ( typeOf )
 import           Text.PrettyPrint hiding ((<>))
+import           Text.Printf (printf)
 import           Prelude hiding (map, zipWith)
 
           
@@ -71,18 +116,6 @@ adaptDim
   -> Variable m t crs to a
 adaptDim = AdaptDim
 
--- | Es una Variable una entrada que no sabemos generar?
-isInput :: Variable m t crs to a -> Bool
-isInput RasterInput{}        = True
-isInput PointInput{}         = True
-isInput AreaInput{}          = True
-isInput DimensionDependant{} = True
-isInput _             = False
-
--- | Es una Variable una derivada?
-isDerived :: Variable m t crs to a -> Bool
-isDerived = not . isInput
-
 -- | Una variable que solo depende de la dimension
 ofDimension
   :: (HasFingerprint a, Dimension dim, Show dim)
@@ -97,11 +130,7 @@ ofDimension = DimensionDependant
 --   use el algoritmo de resampleo por defecto (vecino mas cercano)
 --   para adaptar distintas resoluciones.
 warp
-  :: ( KnownCrs crs
-     , KnownCrs crs'
-     , Warpable m t a
-     , Typeable (Variable m t crs' dim a)
-     )
+  :: CanWarp m t crs crs' dim a
   => WarpSettings m t          a
   -> Variable     m t crs' dim a
   -> Variable     m t crs  dim a
@@ -112,11 +141,7 @@ warp = Warp
 --   Los puntos se reproyectan automaticamente al crs de salida
 --   antes de interpolar
 grid
-  :: ( KnownCrs crs
-     , KnownCrs crs'
-     , Griddable m t a
-     , Typeable (Variable m t crs' dim a)
-     )
+  :: CanGrid m t crs crs' dim a
   => GridSettings  m t                a
   -> Variable      m t       crs' dim a
   -> Variable      m RasterT crs  dim a
@@ -126,11 +151,7 @@ grid = Grid
 --
 --   La entrada se reproyecta automaticamente al crs de salida
 rasterize
-  :: ( KnownCrs crs
-     , KnownCrs crs'
-     , Rasterizable m t a
-     , Typeable (Variable m t crs' dim a)
-     )
+  :: CanRasterize m t crs crs' dim a
   => RasterizeSettings  m t                a
   -> Variable           m t       crs' dim a
   -> Variable           m RasterT crs  dim a
@@ -144,13 +165,9 @@ rasterize = Rasterize
 --   Los puntos de entrada se reproyectan automaticamente al crs
 --   de entrada. Para Tener mas control usar Warp
 sample
-  :: ( KnownCrs crs
-     , KnownCrs crs'
-     , Sampleable m t a
-     , Typeable (Variable m t crs' dim a)
-     )
+  :: CanSample m t crs crs' dim a b
   => SampleSettings       m t                 a
-  -> Variable             m PointT   crs  dim any
+  -> Variable             m PointT   crs  dim b
   -> Variable             m t        crs' dim a
   -> Variable             m PointT   crs  dim a
 sample = Sample
@@ -162,13 +179,9 @@ sample = Sample
 --   Los poligonos de entrada se reproyectan automaticamente al crs
 --   de entrada
 aggregate
-  :: ( KnownCrs crs
-     , KnownCrs crs'
-     , Aggregable m t a
-     , Typeable (Variable m t crs' dim a)
-     )
+  :: CanAggregate m t crs crs' dim a b
   => AggregateSettings m t                a
-  -> Variable          m AreaT   crs  dim any
+  -> Variable          m AreaT   crs  dim b
   -> Variable          m t       crs' dim a
   -> Variable          m AreaT   crs  dim a
 aggregate = Aggregate
@@ -176,7 +189,7 @@ aggregate = Aggregate
 -- | Aplica una funcion sobre todos los elementos
 map
   :: ( HasUnits b (Exp m)
-     , Typeable (Variable m t crs dim b)
+     , IsVariable m t crs dim b
      )
   => WithFingerprint (Exp m b -> Exp m a)
   -> Variable m t crs dim b
@@ -187,8 +200,8 @@ map = Map
 zipWith
   :: ( HasUnits b (Exp m)
      , HasUnits c (Exp m)
-     , Typeable (Variable m t crs dim b)
-     , Typeable (Variable m t crs dim c)
+     , IsVariable m t crs dim b
+     , IsVariable m t crs dim c
      )
   => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
   -> Variable m t crs dim b
@@ -227,6 +240,7 @@ describe = Describe
 dimension :: Variable m t crs dim a -> dim
 dimension RasterInput{rDimension}  = rDimension
 dimension PointInput{pDimension}   = pDimension
+dimension LineInput{lDimension}    = lDimension
 dimension AreaInput{aDimension}    = aDimension
 dimension (DimensionDependant _ d) = d
 -- Esto es dudoso... cual es la dimension de una alternativa?
@@ -275,6 +289,7 @@ getFingerprint
 -- La huella de las entradas es la calculada por el cargador
 getFingerprint RasterInput{rFingerprint}  = rFingerprint
 getFingerprint PointInput{pFingerprint}   = pFingerprint
+getFingerprint LineInput{lFingerprint}    = lFingerprint
 getFingerprint AreaInput{aFingerprint}    = aFingerprint
 
 -- La de una funcion del indice dimensional es producto de su resultado
@@ -312,12 +327,10 @@ getFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
 -- OJO: Asume que el interprete realmente ejecuta la primera opcion
 --      valida, es decir, que se "porta bien".
 --
-getFingerprint va@(AdaptDim dim fun v) = \ix ->
-  let loop (x:xs) = do efv <- getFingerprint v x
-                       either (const (loop xs)) (return . Right) efv
-      loop [] = return $
-        Left (DimAdaptError (varDescription va) (SomeDimensionIx dim ix))
-      varDescription = error "TBD!"
+getFingerprint (AdaptDim _ fun v) = \ix ->
+  let loop (x:xs) =
+        either (const (loop xs)) (return . Right) =<< getFingerprint v x
+      loop [] = return (Left DimAdaptError)
 
   in loop (fun (dimension v) ix)
 
@@ -371,21 +384,31 @@ instance (Monad m, m ~ m') => Hoistable m m' where
 --   funcion de reduccion descender si puede
 --   (eg: getMissingInputs lo hace)
 foldAST
-  :: forall m t crs dim a b. Hoistable m m
+  :: forall m t crs dim a b.
+     ( Hoistable m m
+     , IsVariable m t crs dim a
+     )
   => (forall m' t' dim' crs' a'.
-      ( Hoistable m m', DimensionIx dim ~ DimensionIx dim' )
+      ( Hoistable m m'
+      , DimensionIx dim ~ DimensionIx dim'
+      , IsVariable m' t' crs' dim' a'
+      )
       => b -> Variable m' t' crs' dim' a' -> m' b
      )
   -> b
   -> Variable m t crs dim a
   -> m b
 foldAST f = go where
-  go :: forall m' t' crs' a'. Hoistable m m'
+  go :: forall m' t' crs' a'.
+        ( Hoistable m m'
+        , IsVariable m' t' crs' dim a'
+        )
      => b
      -> Variable m' t' crs' dim a'
      -> m b
   go z v@RasterInput{}        = hoist (f z v)
   go z v@PointInput{}         = hoist (f z v)
+  go z v@LineInput{}          = hoist (f z v)
   go z v@AreaInput{}          = hoist (f z v)
   go z v@DimensionDependant{} = hoist (f z v)
   go z v@(w :<|> w')          = hoist (f z v >>= flip f w >>= flip f w')
@@ -409,13 +432,17 @@ data MissingInput = MissingInput
 -- | Devuelve una lista con las descripciones de las entradas que no
 --   se pueden generar
 getMissingInputs
-  :: forall m t crs dim a. Monad m
+  :: forall m t crs dim a.
+     (Monad m, IsVariable m t crs dim a)
   => Variable m t crs dim a -> DimensionIx dim
   -> m [MissingInput]
 getMissingInputs v0 ix = foldAST step [] v0 where
 
   step :: forall m' t' crs' dim' a'.
-          ( Hoistable m m', DimensionIx dim ~  DimensionIx dim' )
+          ( Hoistable m m'
+          , DimensionIx dim ~  DimensionIx dim'
+          , IsVariable m' t' crs' dim' a'
+          )
       => [MissingInput]
       -> Variable m' t' crs' dim' a'
       -> m' [MissingInput]
@@ -425,7 +452,9 @@ getMissingInputs v0 ix = foldAST step [] v0 where
     return $ case r of
       Right _ -> z
       Left e  ->
-        let mi = MissingInput (SomeDimensionIx rDimension ix) rDescription e
+        let mi = MissingInput
+                  (SomeDimensionIx rDimension ix)
+                  rDescription e
         in mi : z
     
   step z PointInput{pLoad,pDescription,pDimension} = do
@@ -433,7 +462,19 @@ getMissingInputs v0 ix = foldAST step [] v0 where
     return $ case r of
       Right _ -> z
       Left e  ->
-        let mi = MissingInput (SomeDimensionIx pDimension ix) pDescription e
+        let mi = MissingInput
+                  (SomeDimensionIx pDimension ix)
+                  pDescription e
+        in mi : z
+
+  step z LineInput{lLoad,lDescription,lDimension} = do
+    r <- hoist (lLoad ix)
+    return $ case r of
+      Right _ -> z
+      Left e  ->
+        let mi = MissingInput
+                  (SomeDimensionIx lDimension ix)
+                  lDescription e
         in mi : z
 
   step z AreaInput{aLoad,aDescription,aDimension} = do
@@ -441,7 +482,9 @@ getMissingInputs v0 ix = foldAST step [] v0 where
     return $ case r of
       Right _ -> z
       Left e  ->
-        let mi = MissingInput (SomeDimensionIx aDimension ix) aDescription e
+        let mi = MissingInput
+                  (SomeDimensionIx aDimension ix)
+                  aDescription e
         in mi : z
 
   step z DimensionDependant{} = return z
@@ -464,12 +507,18 @@ getMissingInputs v0 ix = foldAST step [] v0 where
   step z (Sample    _ v w) = step z v >>= flip step w
   step z (Aggregate _ v w) = step z v >>= flip step w
 
-  step z (AdaptDim _ f v) =
-    let loop z' (x:xs) = do
-          z'' <- hoist (getMissingInputs v x)
-          if null z'' then return z' else loop z'' xs
-        loop z' [] = return z'
-    in loop z (f (dimension v) ix)
+  step z ad@(AdaptDim d f v) =
+    case f (dimension v) ix of
+      [] ->
+        -- Si no hay adaptacion razonable de dimensiones marcamos el
+        -- nodo AdaptDim como entrada que falta. Esto permite que
+        -- se visiten las alternativas en caso de haberlas
+        let mi = MissingInput
+                 (SomeDimensionIx d ix)
+                 (description ad)
+                 DimAdaptError 
+        in return (mi : z)
+      (ix':_) -> hoist (getMissingInputs v ix')
   step z (CheckPoint _ v) = step z v
   step z (Describe   _ v) = step z v
 
@@ -477,41 +526,56 @@ getMissingInputs v0 ix = foldAST step [] v0 where
   step z (ZipWith _ v w) = step z v >>= flip step w
 
 prettyAST
-  :: forall m t crs dim a. Typeable (Variable m t crs dim a)
+  :: forall m t crs dim a. IsVariable m t crs dim a
   => Variable m t crs dim a -> Doc
-prettyAST = goV where
-  go, goV :: Variable m t crs dim a -> Doc
-  goV v = text (show (typeOf v)) $$ nest 2 (go v) where
-  go RasterInput{rDescription,rDimension} =
+prettyAST = go where
+  go, prettyVarType :: Variable m t crs dim a -> Doc
+  go RasterInput{rDescription,rDimension} = withBullet
     "RasterInput" <+> doubleQuotes (text (T.unpack rDescription))
                   <+> parens (text (show rDimension))
-  go PointInput{pDescription,pDimension} =
+  go PointInput{pDescription,pDimension} = withBullet
     "PointInput" <+> doubleQuotes (text (T.unpack pDescription))
                  <+> parens (text (show pDimension))
-  go AreaInput{aDescription,aDimension} =
+  go LineInput{lDescription,lDimension} = withBullet
+    "PointInput" <+> doubleQuotes (text (T.unpack lDescription))
+                 <+> parens (text (show lDimension))
+  go AreaInput{aDescription,aDimension} = withBullet
     "AreaInput" <+> doubleQuotes (text (T.unpack aDescription))
                 <+> parens (text (show aDimension))
   go (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
   go (s1 :<|> s2) =
-    nest 2 (goV s1) <+> ":<|>" $$ nest 2 (goV s2)
+    nextVar (go s1) $+$ ":<|>" $+$ nextVar (go s2)
   go (Warp s1 s2) =
-    "Warp" <+> text (show s1) $$ nest 2 (prettyAST s2)
+    withBullet "Warp" <+> text (show s1) $$ nextVar (prettyAST s2)
   go (Grid s1 s2) =
-    "Grid" <+> text (show s1) $$ nest 2 (prettyAST s2)
+    withBullet "Grid" <+> text (show s1) $$ nextVar (prettyAST s2)
   go (Rasterize s1 s2) =
-    "Rasterize" <+> text (show s1) $$ nest 2 (prettyAST s2)
+    withBullet "Rasterize" <+> text (show s1) $$ nextVar (prettyAST s2)
   go (Sample s1 _ s2) =
-    "Sample" <+> text (show s1) $$ nest 2 (prettyAST s2)
+    withBullet "Sample" <+> text (show s1) $$ nextVar (prettyAST s2)
   go (Aggregate s1 _ s2) =
-    "Aggregate" <+> text (show s1) $$ nest 2 (prettyAST s2)
+    withBullet "Aggregate" <+> text (show s1) $$ nextVar (prettyAST s2)
   go (AdaptDim dim _ s2) =
-    "AdaptDim" <+> text (show dim) $$ nest 2 (prettyAST s2)
+    withBullet "AdaptDim" <+> text (show dim) $$ nextVar (prettyAST s2)
   go (CheckPoint _ s2) =
-    "CheckPoint" $$ nest 2 (prettyAST s2)
+    withBullet "CheckPoint" $$ nextVar (prettyAST s2)
   go (Describe desc var) =
-    text (T.unpack desc) $$ nest 2 (prettyAST var)
+    text (T.unpack desc) <+> prettyVarType var $+$
+      nextVar (prettyAST var)
   go (Map _ s2) =
-    "Map" $$ nest 2 (prettyAST s2)
+    withBullet "Map" $$ nextVar (prettyAST s2)
   go (ZipWith _ a b) =
-    "ZipWith" $$ nest 2 (prettyAST a) $$ nest 2 (prettyAST b)
+    withBullet "ZipWith" $$ nextVar (prettyAST a) $$ nextVar (prettyAST b)
+
+  nextVar = nest 2
+  withBullet = ("*" <+>)
+
+  prettyVarType v =
+    text $ printf ":: %s (%s, %s)"
+      (show (typeOf (undefined :: a)))
+      (show (typeOf (undefined :: crs)))
+      (show (typeOf (undefined :: dim)))
+
+instance IsVariable m t crs dim a
+  => Show (Variable m t crs dim a) where show = show . prettyAST

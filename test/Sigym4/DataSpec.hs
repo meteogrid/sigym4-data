@@ -1,5 +1,6 @@
 -- Para los tests de cosas que no deben compilar
 {-# OPTIONS_GHC -fdefer-type-errors #-}
+
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE DataKinds #-}
@@ -51,20 +52,21 @@ spec = do
     it "shows dimension" $ do
       show (prettyAST v) `shouldSatisfy` isInfixOf "0 0 * * *"
 
-    it "shows crs" $ do
-      show (prettyAST v) `shouldSatisfy` isInfixOf "23030"
-
-    it "shows type" $ do
-      show (prettyAST v) `shouldSatisfy` isInfixOf "Temperature"
-
-    it "shows dimension type" $ do
-      show (prettyAST v) `shouldSatisfy` isInfixOf "Observation"
-
-    it "can describe" $ do
+    describe "only shows type of \"describe\" nodes" $ do
       let v' = D.describe "una variable" v
-      show (prettyAST v') `shouldSatisfy`
-        isInfixOf "una variable"
-      show (prettyAST v) `shouldSatisfy` isInfixOf "dummy"
+
+      it "shows description" $ do
+        show (prettyAST v') `shouldSatisfy` isInfixOf "una variable"
+
+      it "shows crs" $ do
+        show v' `shouldSatisfy` isInfixOf "23030"
+
+      it "shows type" $ do
+        show v' `shouldSatisfy` isInfixOf "Temperature"
+
+      it "shows dimension type" $ do
+        show v' `shouldSatisfy` isInfixOf "Observation"
+
 
 
   describe "adaptDim" $ do
@@ -107,12 +109,25 @@ spec = do
     it "can calculate missing inputs" $ do
       let ix = Hour 6 :* datetime 2016 11 28 0 0
           missing = runDummy (getMissingInputs tErr ix)
+      length missing `shouldBe` 2
       map missingIx missing `shouldMatchList` [
           SomeDimensionIx (dimension tObs)  (datetime 2016 11 28 6 0)
         , SomeDimensionIx (dimension tPred) ix
         ]
 
 
+    it "marks failed adaptation as missing input" $ do
+      let tPredGood = tPred {
+            AST.rLoad = return . const (Right undefied)
+          }
+          tObsBad = adaptDim (dimension tPred) badAdaptor tObs
+          badAdaptor _ _ = []
+          ix = Hour 6 :* datetime 2016 11 28 0 0
+          missing = runDummy (getMissingInputs tObsBad ix)
+      length missing `shouldBe` 1
+      map missingIx missing `shouldMatchList` [
+          SomeDimensionIx (dimension tPred) ix
+        ]
 
 
 datetime :: Newtype t UTCTime
@@ -165,5 +180,5 @@ instance AST.HasGeoReference (DummyBand crs a) DummyInterpreter crs where
 instance AST.HasCrs (DummyBand crs a) DummyInterpreter where
   getCrs = return . const (fromMaybe (error "unreachable") (epsgCrs 4326))
 
-instance AST.HasDescription (DummyBand crs a) DummyInterpreter where
-  description = return . dummyDescription
+instance AST.HasDescription (DummyBand crs a) where
+  description = dummyDescription
