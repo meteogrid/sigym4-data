@@ -54,6 +54,7 @@ module Sigym4.Data.Generic (
 , prettyAST
 , dimension
 , getFingerprint
+, foldLeaves
 
 ) where
 
@@ -361,9 +362,7 @@ combineVarsFPWith v w o ix = do
 -- No desciende en los nodos AdaptDim porque al no existir
 -- adaptacion automatica de dimensiones no sabria por donde bajar.
 -- Es responsabilidad de la funcion de reduccion descender si puede
--- (eg: 'getMissingInputs' lo puede hacer ya que conoce el indice
--- dimensional)
-foldAST
+foldLeaves
   :: forall m t crs dim a b.
      ( Monad m, IsVariable m t crs dim a )
   => (forall t' crs' a'. IsVariable m t' crs' dim a'
@@ -371,7 +370,7 @@ foldAST
   -> b
   -> Variable m t crs dim a
   -> m b
-foldAST f = go maxDepth where
+foldLeaves f = go maxDepth where
   maxDepth = 100 :: Int
 
   go :: forall t' crs' a'.  IsVariable m t' crs' dim a'
@@ -412,27 +411,20 @@ data MissingInput = MissingInput
 -- | Devuelve una lista de 'MissingInput's con las entradas que
 -- impiden que una 'Variable' se genere.
 getMissingInputs
-  :: forall m t crs dim a.
-     (Monad m, IsVariable m t crs dim a)
+  :: (Monad m, IsVariable m t crs dim a)
   => Variable m t crs dim a -> DimensionIx dim
   -> m [MissingInput]
-getMissingInputs = getMissingInputs' 100
-
-getMissingInputs'
-  :: forall m t crs dim a.
-     (Monad m, IsVariable m t crs dim a)
-  => Int -> Variable m t crs dim a -> DimensionIx dim
-  -> m [MissingInput]
-getMissingInputs' !n _  _  | n<=0 = return []
-getMissingInputs' !n v0 ix = foldAST step [] v0 where
-
-  step :: forall t' crs' a'. IsVariable m t' crs' dim a'
-       => [MissingInput]
-       -> Variable m t' crs' dim a'
-       -> m [MissingInput]
-
-
-  step z RasterInput{rLoad,rDescription,rDimension} = do
+getMissingInputs = go 100 [] where
+  go
+    :: forall m t crs dim a.
+       (Monad m, IsVariable m t crs dim a)
+    => Int
+    -> [MissingInput]
+    -> Variable m t crs dim a
+    -> DimensionIx dim
+    -> m [MissingInput]
+  go !n z  _  _ | n<=0 = return z
+  go !_ z RasterInput{rLoad,rDescription,rDimension} ix = do
     r <- rLoad ix
     return $ case r of
       Right _ -> z
@@ -442,7 +434,7 @@ getMissingInputs' !n v0 ix = foldAST step [] v0 where
                   rDescription e
         in mi : z
     
-  step z PointInput{pLoad,pDescription,pDimension} = do
+  go !_ z PointInput{pLoad,pDescription,pDimension} ix = do
     r <- pLoad ix
     return $ case r of
       Right _ -> z
@@ -452,7 +444,7 @@ getMissingInputs' !n v0 ix = foldAST step [] v0 where
                   pDescription e
         in mi : z
 
-  step z LineInput{lLoad,lDescription,lDimension} = do
+  go !_ z LineInput{lLoad,lDescription,lDimension} ix = do
     r <- lLoad ix
     return $ case r of
       Right _ -> z
@@ -462,7 +454,7 @@ getMissingInputs' !n v0 ix = foldAST step [] v0 where
                   lDescription e
         in mi : z
 
-  step z AreaInput{aLoad,aDescription,aDimension} = do
+  go !_ z AreaInput{aLoad,aDescription,aDimension} ix = do
     r <- aLoad ix
     return $ case r of
       Right _ -> z
@@ -473,28 +465,28 @@ getMissingInputs' !n v0 ix = foldAST step [] v0 where
         in mi : z
 
   -- Que bien, estas nunca faltan
-  step z Const{}              = return z
-  step z DimensionDependant{} = return z
+  go !_ z Const{}              _ = return z
+  go !_ z DimensionDependant{} _ = return z
 
   -- Las entradas que faltan en una alternativa son las primeras que
   -- falten, no todas las que faltan
-  step z (v :<|> w) = do
-    z' <- step [] v
+  go !n z (v :<|> w) ix = do
+    z' <- go (n-1) [] v ix
     if null z'
       -- Si el acumulador ha quedado igual es que no falta nada en la
       -- opcion principal. No calculamos las alternativas porque si no
       -- siempre (o casi siempre) faltaria algo
       then return z
-      else step (z <> z') w
+      else go (n-1) (z <> z') w ix
 
-  step z (Warp _ v)        = step z v
-  step z (Grid _ v)        = step z v
-  step z (Rasterize _ v)   = step z v
+  go !n z (Warp _ v)        ix = go (n-1) z v ix
+  go !n z (Grid _ v)        ix = go (n-1) z v ix
+  go !n z (Rasterize _ v)   ix = go (n-1) z v ix
 
-  step z (Sample    _ v w) = step z v >>= flip (step) w
-  step z (Aggregate _ v w) = step z v >>= flip (step) w
+  go !n z (Sample    _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
+  go !n z (Aggregate _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
 
-  step z ad@(AdaptDim d f v) =
+  go !n z ad@(AdaptDim d f v) ix =
     case f (dimension v) ix of
       [] -> -- Si no hay adaptacion razonable de dimensiones marcamos el
             -- nodo AdaptDim como entrada que falta. Esto permite que
@@ -514,14 +506,15 @@ getMissingInputs' !n v0 ix = foldAST step [] v0 where
                   (description v) DimAdaptError 
             in return (mi : z)
           loop (ix':xs') _  = do
-            z' <- getMissingInputs' (n-1) v ix' --FIXME
+            z' <- go (n-1) [] v ix'
             if null z'
               then -- hay una opcion posible, decimos que no falta nada 
                 return []
               else -- seguimos probando
                 loop xs' ix'
 
-  step z (CheckPoint _ v)   = step z v
-  step z (Describe   _ v)   = step z v
-  step z (Map        _ v)   = step z v
-  step z (ZipWith    _ v w) = step z v >>= flip step w
+  go !n z (CheckPoint _ v)   ix = go (n-1) z v ix
+  go !n z (Describe   _ v)   ix = go (n-1) z v ix
+  go !n z (Map        _ v)   ix = go (n-1) z v ix
+  go !n z (ZipWith    _ v w) ix = go (n-1) z v ix
+                                          >>= \z' -> go (n-1) z' w ix
