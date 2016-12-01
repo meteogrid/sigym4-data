@@ -45,6 +45,7 @@ module Sigym4.Data.Generic (
 , checkpoint
 , describe
 
+, Interpretable
 , ofDimension
 , const
 , map
@@ -62,7 +63,6 @@ import           Sigym4.Data.AST as AST
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 
-import           Control.DeepSeq (NFData)
 import           Data.Monoid ((<>))
 import           Prelude hiding (const, map, zipWith)
 import qualified Prelude as P
@@ -161,15 +161,15 @@ aggregate
 aggregate = Aggregate
 
 -- | Una 'Variable' constante
-const :: ( HasFingerprint a
-         , NFData a
-         , Show a
-         ) => a -> Variable m t crs () a
+const :: IsConst dim a => dim -> a -> Variable m t crs dim a
 const = Const
 
 -- | Aplica una funcion sobre todos los elementos
 map
-  :: IsVariable m t crs dim b
+  :: ( IsVariable m t crs dim b
+     , Interpretable m t a
+     , Interpretable m t b
+     )
   => WithFingerprint (Exp m b -> Exp m a)
   -> Variable m t crs dim b
   -> Variable m t crs dim a
@@ -179,6 +179,9 @@ map = Map
 zipWith
   :: ( IsVariable m t crs dim b
      , IsVariable m t crs dim c
+     , Interpretable m t a
+     , Interpretable m t b
+     , Interpretable m t c
      )
   => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
   -> Variable m t crs dim b
@@ -220,7 +223,9 @@ dimension RasterInput{rDimension}  = rDimension
 dimension PointInput{pDimension}   = pDimension
 dimension LineInput{lDimension}    = lDimension
 dimension AreaInput{aDimension}    = aDimension
-dimension (Const _) = ()
+-- Para poder escribir la siguiente ecuacion es el unico motivo por el
+-- cual Const lleva dimension asociada.
+dimension (Const d _)              = d
 dimension (DimensionDependant _ d) = d
 -- Esto es dudoso... cual es la dimension de una alternativa?
 -- Ahora mismo no podemos decir "la de la que se seleccione" porque
@@ -274,9 +279,9 @@ getFingerprint PointInput{pFingerprint}   = pFingerprint
 getFingerprint LineInput{lFingerprint}    = lFingerprint
 getFingerprint AreaInput{aFingerprint}    = aFingerprint
 
--- La de una constante es la de su valor
+-- La de una constante es la de su valor. La dimension no nos importa.
 -- (Asumimos que se calcula muy rapido)
-getFingerprint (Const v) =  P.const . return . Right $ fingerprint v
+getFingerprint (Const _ v) =  P.const . return . Right $ fingerprint v
 
 -- La de una funcion del indice dimensional es funcion de su resultado
 -- (Asumimos que se calcula muy rapido)

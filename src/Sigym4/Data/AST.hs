@@ -36,6 +36,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Vector.Storable ( Vector, Storable )
 import           GHC.TypeLits
+import           GHC.Exts (Constraint)
 import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
 
@@ -153,11 +154,8 @@ data Variable
 
   -- | Una variable constante
   Const
-    :: ( NFData a
-       , HasFingerprint a
-       , Show a
-       )
-    => a -> Variable m t crs () a
+    :: IsConst dim a
+    => dim -> a -> Variable m t crs dim a
 
   -- | Una variable que solo depende de la dimension
   DimensionDependant
@@ -280,13 +278,19 @@ data Variable
 
   -- | Aplica una funcion unaria
   Map
-    :: IsVariable m t crs dim b
+    :: ( Interpretable m t a
+       , Interpretable m t b
+       , IsVariable m t crs dim b
+       )
     => WithFingerprint (Exp m b -> Exp m a)
     -> Variable m t crs dim b
     -> Variable m t crs dim a
 
   ZipWith
-    :: ( IsVariable m t crs dim b
+    :: ( Interpretable m t a
+       , Interpretable m t b
+       , Interpretable m t c
+       , IsVariable m t crs dim b
        , IsVariable m t crs dim c
        )
     => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
@@ -301,6 +305,9 @@ type IsVariable m t crs dim a  =
   , Typeable m, Typeable t, Typeable crs, Typeable dim, Typeable a
   , HasDescription (Variable m t crs dim a)
   )
+
+-- | Restriccion que impone el interpete para que una variable sea interpretable
+type family Interpretable (m :: * -> *) (t :: VariableType) (a :: *)  :: Constraint
 
 -- | Restriccion que deben satisfacer las 'Variable's que podemos
 --   adaptar sus indices dimensionales
@@ -382,7 +389,7 @@ instance NFData dim => NFData (Variable m t crs dim a)
     rnf aLoad `seq` rnf aFingerprint
               `seq` rnf aDimension
               `seq` rnf aDescription
-  rnf (Const v) = rnf v
+  rnf (Const d v) = rnf d `seq` rnf v
   rnf (DimensionDependant v1 v2) = rnf v1 `seq` rnf v2
   rnf (v1 :<|> v2) = rnf v1 `seq` rnf v2
   rnf (Warp v1 v2) = rnf v1 `seq` rnf v2
@@ -597,6 +604,14 @@ type IsRasterInput m crs dim a =
   , IsRasterBand (RasterBand m crs a) m crs a
   )
 
+type IsConst dim a =
+  ( NFData a
+  , HasFingerprint a
+  , Show a
+  , Dimension dim
+  , Show dim
+  )
+
 type IsVectorInput m crs dim a =
   ( KnownCrs crs
   , Dimension dim
@@ -676,7 +691,7 @@ prettyAST = go maxDepth where
                 <+> parens (text (show aDimension))
   go !_ (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
-  go !_ (Const v) = "Constant" <+> text (show v)
+  go !_ (Const d v) = "Constant" <+> text (show v) <+> parens (text (show d))
   go !n (s1 :<|> s2) =
     nextVar (goN n s1) $+$ ":<|>" $+$ nextVar (goN n s2)
   go !n (Warp s1 s2) =
@@ -733,7 +748,7 @@ instance HasDescription (Variable m t crs dim a) where
   description PointInput {pDescription} = pDescription
   description LineInput {lDescription} = lDescription
   description AreaInput {aDescription} = aDescription
-  description (Const v) = "Constant " <> fromString (show v)
+  description (Const _ v) = "Constant " <> fromString (show v)
   description (DimensionDependant _ _) = "Function of dimension"
   description (v :<|> w) = description v <> " or " <> description w
   description (Warp _ v) = "Warped " <> description v

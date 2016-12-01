@@ -68,6 +68,8 @@ module Sigym4.Data (
 , ofDimension
 
 -- ** Combinadores de variables
+-- *** 'Interpretable'
+, Interpretable
 -- *** 'map'
 , map
 -- *** 'zipWith'
