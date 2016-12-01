@@ -319,6 +319,7 @@ type CanAdaptDim m t crs dim' dim a =
   , Show (DimensionIx dim)
   , Show dim'
   , Show (DimensionIx dim')
+  , HasFingerprint (DimensionIx dim')
   , IsVariable m t crs dim' a
   )
 
@@ -465,6 +466,10 @@ data LoadError
   -- | Alguna excepcion que no hemos sabido gestionar. El interprete es
   -- libre de hacer lo que quiera (probablemente sea su culpa)
   | LoadException   SomeException
+
+  -- | Se ha sobrepasado la altura maxima del grafo de generacion
+  --   Probablemente exita un ciclo
+  | MaxDepthExceeded
 
   deriving Show
 
