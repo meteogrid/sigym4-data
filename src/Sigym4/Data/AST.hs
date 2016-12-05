@@ -247,7 +247,7 @@ data Variable
   AdaptDim
     :: CanAdaptDim m t crs dim' dim a
     => dim
-    -> (dim' -> DimensionIx dim -> [DimensionIx dim'])
+    -> (DimensionIx dim -> [DimensionIx dim'])
     -> Variable m t crs dim' a
     -> Variable m t crs dim  a
 

@@ -85,7 +85,7 @@ import qualified Prelude as P
 adaptDim
   :: CanAdaptDim m t crs from to a
   => to
-  -> (from -> DimensionIx to -> [DimensionIx from])
+  -> (DimensionIx to -> [DimensionIx from])
   -> Variable m t crs from a
   -> Variable m t crs to a
 adaptDim = AdaptDim
@@ -323,7 +323,7 @@ getFingerprint (AdaptDim _ fun v) = \ix ->
         either (P.const (loop xs)) (return . Right) =<< getFingerprint v x
       loop [] = return (Left DimAdaptError)
 
-  in loop (fun (dimension v) ix)
+  in loop (fun ix)
 
 getFingerprint (CheckPoint _ v) = getFingerprint v
 getFingerprint (Describe   _ v) = getFingerprint v
@@ -492,7 +492,7 @@ getMissingInputs = go 100 [] where
   go !n z (Aggregate _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
 
   go !n z ad@(AdaptDim d f v) ix =
-    case f (dimension v) ix of
+    case f ix of
       [] -> -- Si no hay adaptacion razonable de dimensiones marcamos el
             -- nodo AdaptDim como entrada que falta. Esto permite que
             -- se visiten las alternativas en caso de haberlas

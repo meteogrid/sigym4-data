@@ -94,7 +94,7 @@ spec = do
           let bestTime = idfloor dObs (coerceTime (predictedTime ixPred))
           in maybeToList (fmap unQ bestTime)
 
-        adaptedObs = adaptDim (dimension tPred) closestObservedTime tObs
+        adaptedObs = adaptDim (dimension tPred) (closestObservedTime (dimension tObs)) tObs
 
         tErr :: DummyRasterVar (Epsg 23030) Prediction Temperature
         tErr = D.describe "predErr" $
@@ -132,7 +132,7 @@ spec = do
             AST.rLoad = return . const (Right undefined)
           }
           tObsBad = adaptDim (dimension tPred) badAdaptor tObs
-            where badAdaptor _ _ = []
+            where badAdaptor = const []
           tPredBad = D.describe "predErr" $
                       D.zipWith sqErr tObsBad tPredGood
           ix = Hour 6 :* datetime 2016 11 28 0 0
