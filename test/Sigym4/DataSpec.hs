@@ -17,6 +17,7 @@ import qualified Sigym4.Data as D
 import qualified Sigym4.Data.AST as AST
 import           Sigym4.Data.Units
 
+import           Control.Monad.Trans.Either
 import           Control.Newtype
 import           Data.Functor.Identity
 import           Data.List (isInfixOf)
@@ -42,8 +43,8 @@ spec = do
   describe "prettyAST" $ do
     let v :: DummyRasterVar (Epsg 23030) Observation Temperature
         v = dummyRasterInput "dummy"
-              (const (Left NotAvailable))
-              (const (return (Left NotAvailable)))
+              (const (throwError NotAvailable))
+              (const (throwError NotAvailable))
               (Schedule [cron|0 0 * * *|])
 
     it "shows description" $ do
@@ -76,14 +77,14 @@ spec = do
   describe "adaptDim" $ do
     let tObs :: DummyRasterVar (Epsg 23030) Observation Temperature
         tObs = dummyRasterInput "temperatura observada"
-              (const (Left NotAvailable))
-              (const (return (Left NotAvailable)))
+              (const (throwError NotAvailable))
+              (const (throwError NotAvailable))
               (Schedule [cron|0 * * * *|])
 
         tPred :: DummyRasterVar (Epsg 23030) Prediction Temperature
         tPred = dummyRasterInput "temperatura inventada"
-              (const (Left NotAvailable))
-              (const (return (Left NotAvailable)))
+              (const (throwError NotAvailable))
+              (const (throwError NotAvailable))
               ([0,60..24*60] :* Schedule [cron|0 0 * * *|])
 
         sqErr = [fp|version1|] $ \o p -> o*o - p*p
@@ -113,7 +114,7 @@ spec = do
     describe "getMissingInputs" $ do
       it "can calculate" $ do
         let ix = Hour 6 :* datetime 2016 11 28 0 0
-            missing = runDummy (getMissingInputs tErr ix)
+            Right missing = runDummy (getMissingInputs tErr ix)
         length missing `shouldBe` 2
         map missingIx missing `shouldMatchList` [
             SomeDimensionIx (dimension tObs)  (datetime 2016 11 28 6 0)
@@ -122,21 +123,21 @@ spec = do
 
       it "handles cycles" $ do
         let ix = Hour 6 :* datetime 2016 11 28 0 0
-            missing = runDummy (getMissingInputs v' ix)
+            Right missing = runDummy (getMissingInputs v' ix)
             v' = D.zipWith ([fp|v1|] (+)) tErr v'
         length missing `shouldSatisfy` (>0)
 
 
     it "marks failed adaptation as missing input" $ do
       let tPredGood = tPred {
-            AST.rLoad = return . const (Right undefined)
+            AST.rLoad = return . const undefined
           }
           tObsBad = adaptDim (dimension tPred) badAdaptor tObs
             where badAdaptor = const []
           tPredBad = D.describe "predErr" $
                       D.zipWith sqErr tObsBad tPredGood
           ix = Hour 6 :* datetime 2016 11 28 0 0
-          missing = runDummy (getMissingInputs tPredBad ix)
+          Right missing = runDummy (getMissingInputs tPredBad ix)
       map missingIx missing `shouldMatchList` [
           SomeDimensionIx (dimension tPred) ix
         ]
@@ -149,11 +150,11 @@ datetime y m d h mn
 
 
 
-newtype DummyInterpreter a = DummyInterpreter (Identity a)
-  deriving (Functor, Applicative, Monad)
+newtype DummyInterpreter a = DummyInterpreter (EitherT LoadError Identity a)
+  deriving (Functor, Applicative, Monad, MonadError LoadError)
 
-runDummy :: DummyInterpreter a -> a
-runDummy (DummyInterpreter a) = runIdentity a
+runDummy :: DummyInterpreter a -> Either LoadError a
+runDummy (DummyInterpreter a) = runIdentity (runEitherT a)
 
 type DummyVar = Variable DummyInterpreter 
 type DummyRasterVar = Variable DummyInterpreter RasterT
@@ -161,11 +162,11 @@ type DummyRasterVar = Variable DummyInterpreter RasterT
 dummyRasterInput
   :: AST.IsRasterInput DummyInterpreter crs dim a
   => Description
-  -> (DimensionIx dim -> Either LoadError (DummyBand crs a))
-  -> (DimensionIx dim -> DummyInterpreter (Either LoadError Fingerprint))
+  -> (DimensionIx dim -> DummyInterpreter (DummyBand crs a))
+  -> (DimensionIx dim -> DummyInterpreter Fingerprint)
   -> dim -> DummyRasterVar crs dim a
 dummyRasterInput desc res f d = AST.RasterInput
-  { AST.rLoad        = return . res
+  { AST.rLoad        = res
   , AST.rFingerprint = f
   , AST.rDimension   = d
   , AST.rDescription = desc

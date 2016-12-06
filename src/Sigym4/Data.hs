@@ -103,6 +103,7 @@ module Sigym4.Data (
 -- * Tipos re-exportados
 , Storable
 , Vector
+, MonadError (..)
 
 -- * Modulos re-exportados
 , module Sigym4.Data.Fingerprint
@@ -123,4 +124,5 @@ import Sigym4.Dimension hiding (Dim)
 import SpatialReference
 import Sigym4.Dimension.CronSchedule
 
+import Control.Monad.Except (MonadError(..))
 import Data.Vector.Storable (Storable, Vector)

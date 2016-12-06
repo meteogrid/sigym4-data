@@ -40,6 +40,7 @@ library
     , conduit
     , pretty
     , template-haskell
+    , mtl
   ghc-options:      -Wall
                     -fwarn-incomplete-patterns
                     -fwarn-incomplete-uni-patterns
@@ -56,6 +57,7 @@ test-suite spec
                   , sigym4-data
                   , should-not-typecheck
                   , QuickCheck
+                  , either
   hs-source-dirs:   test
   main-is:          Spec.hs
   default-language: Haskell2010

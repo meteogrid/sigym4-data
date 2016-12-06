@@ -27,6 +27,7 @@ import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
+import           Control.Monad.Except (MonadError)
 import           Data.Default
 import           Data.Function ( on )
 import           Data.Monoid ( (<>) )
@@ -106,9 +107,9 @@ data Variable
   RasterInput
     :: IsRasterInput m crs dim a
     => { rLoad        :: DimensionIx dim
-                      -> m (Either LoadError (RasterBand m crs a))
+                      -> m (RasterBand m crs a)
        , rFingerprint :: DimensionIx dim
-                      -> m (Either LoadError Fingerprint)
+                      -> m Fingerprint
        , rDimension   :: dim
        , rDescription :: Description
        }
@@ -119,9 +120,9 @@ data Variable
   PointInput
     :: IsVectorInput m crs dim a
     => { pLoad        :: DimensionIx dim
-                      -> m (Either LoadError (VectorLayer m crs a))
+                      -> m (VectorLayer m crs a)
        , pFingerprint :: DimensionIx dim
-                      -> m (Either LoadError Fingerprint)
+                      -> m Fingerprint
        , pDimension   :: dim
        , pDescription :: Description
        }
@@ -131,9 +132,9 @@ data Variable
   LineInput 
     :: IsVectorInput m crs dim a
     => { lLoad        :: DimensionIx dim
-                      -> m (Either LoadError (VectorLayer m crs a))
+                      -> m (VectorLayer m crs a)
        , lFingerprint :: DimensionIx dim
-                      -> m (Either LoadError Fingerprint)
+                      -> m Fingerprint
        , lDimension   :: dim
        , lDescription :: Description
        }
@@ -143,9 +144,9 @@ data Variable
   AreaInput 
     :: IsVectorInput m crs dim a
     => { aLoad        :: DimensionIx dim
-                      -> m (Either LoadError (VectorLayer m crs a))
+                      -> m (VectorLayer m crs a)
        , aFingerprint :: DimensionIx dim
-                      -> m (Either LoadError Fingerprint)
+                      -> m Fingerprint
        , aDimension   :: dim
        , aDescription :: Description
        }
@@ -473,6 +474,15 @@ data LoadError
 
   deriving Show
 
+instance NFData LoadError where
+  rnf !NotAvailable          = ()
+  rnf !(Corrupt msg)         = rnf msg
+  rnf !(TransitoryError msg) = rnf msg
+  rnf !(InternalError msg)   = rnf msg
+  rnf !DimAdaptError         = ()
+  rnf !(LoadException !_)    = () --FIXME: This doesn't evaluate SomeException to nf!
+  rnf !MaxDepthExceeded      = ()
+
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "Cannot use 'fingerprint' on Variables. Use " ':$$:
                'Text "'getFingerprint' instead")
@@ -607,6 +617,7 @@ type IsRasterInput m crs dim a =
   , Show dim
   , Show (DimensionIx dim)
   , IsRasterBand (RasterBand m crs a) m crs a
+  , MonadError LoadError m
   )
 
 type IsConst dim a =
@@ -623,6 +634,7 @@ type IsVectorInput m crs dim a =
   , Show dim
   , Show (DimensionIx dim)
   , IsVectorLayer (VectorLayer m crs a) m crs a
+  , MonadError LoadError m
   )
 
 type IsRasterBand b m crs a =
