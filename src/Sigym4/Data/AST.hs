@@ -299,6 +299,7 @@ data Variable
     -> Variable m t crs dim c
     -> Variable m t crs dim a
 
+infixl 3 :<|>
 
 -- | Restriccion que deben satisfacer todas las 'Variable's
 type IsVariable m t crs dim a  =
