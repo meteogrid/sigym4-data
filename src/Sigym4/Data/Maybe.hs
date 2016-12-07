@@ -17,6 +17,8 @@ module Sigym4.Data.Maybe (
   , isJust
   , fromMaybe
   , maybe
+  , toVectorWith
+  , fromVectorWith
 ) where
 
 import Sigym4.Data.Null
@@ -57,8 +59,9 @@ instance (Storable a, HasNull a) => Storable (Maybe a) where
   peek p = do
     v <- peek (castPtr p)
     return $! if isNull v then Nothing else Just v
-  poke p = poke (castPtr p) . fromMaybe nullValue
   {-# INLINE peek #-}
+  poke p = poke (castPtr p) . fromMaybe nullValue
+  {-# INLINE poke #-}
 
 instance Applicative Maybe where
   pure = Just
@@ -163,3 +166,15 @@ instance (G.Vector U.Vector a, HasNull a) => G.Vector U.Vector (Maybe a) where
     val <- G.basicUnsafeIndexM (unVM v) i
     return $! if isNull val then Nothing else Just val
   {-# INLINE basicUnsafeIndexM #-}
+
+fromVectorWith
+  :: (G.Vector v a, G.Vector v (Maybe a), Eq a )
+  => a -> v a -> v (Maybe a)
+fromVectorWith nd = G.map (\v -> if v==nd then Nothing else Just v)
+{-# INLINE fromVectorWith #-}
+
+toVectorWith
+  :: (G.Vector v a, G.Vector v (Maybe a))
+  => a -> v (Maybe a) -> v a
+toVectorWith nd = G.map (fromMaybe nd)
+{-# INLINE toVectorWith #-}
