@@ -12,6 +12,7 @@ import           Sigym4.Data.Maybe
 import           Sigym4.Data.Null
 import           Prelude hiding (Maybe(..), maybe)
 
+import           Control.Newtype
 import           Data.Coerce (coerce)
 import qualified Data.Vector.Unboxed as U
 import           Data.Vector.Unboxed.Deriving (derivingUnbox)
@@ -28,19 +29,20 @@ main = hspec spec
 
 spec :: Spec
 spec = do
-  describe "Behaves as Num" $ do
-    it "valid values produce valid value" $
-      10 + 10 `shouldBe` (20 :: Maybe TestValue)
-    it "any nullValue produces Nothing" $
-      (-42) + 10 `shouldBe` (Nothing :: Maybe TestValue)
+  describe "Nullable" $ do
+    describe "Behaves as Num" $ do
+      it "valid values produce valid value" $
+        10 + 10 `shouldBe` (20 :: Nullable TestValue)
+      it "any nullValue produces Nothing" $
+        Nullable Nothing + 10 `shouldBe` (Nullable Nothing  :: Nullable TestValue)
 
-  describe "toVectorWith and fromVectorWith" $ do
-    prop "from . to should be biyective regardless nodata value outside of domain" $
-      \( (TV . negate . getPositive) -> nd
-        , vec :: U.Vector (Maybe TestValue)
-        ) ->
-          let vec' = fromVectorWith nd . toVectorWith nd $ vec
-          in counterexample (show vec') $ vec == vec'
+    describe "toNullableVectorWith and nullableFromVectorWith" $ do
+      prop "from . to should be biyective regardless nodata value outside of domain" $
+        \( (TV . negate . getPositive) -> nd
+          , vec :: U.Vector (Nullable TestValue)
+          ) ->
+            let vec' = nullableFromVectorWith nd . toNullableVectorWith nd $ vec
+            in counterexample (show vec') $ vec == vec'
 
 newtype TestValue = TV Double
   deriving
@@ -56,8 +58,16 @@ instance HasNull TestValue where
   isNull    = (==nullValue)
   nullValue = TV (-42)
 
-instance Arbitrary (Maybe TestValue) where
-  arbitrary = oneof [ pure Nothing, Just . getPositive <$> arbitrary ]
+instance Arbitrary (Nullable TestValue) where
+  arbitrary = pack <$> arbitrary
 
+instance Arbitrary (U.Vector (Nullable TestValue)) where
+  arbitrary = U.fromList <$> arbitrary
+
+
+instance Arbitrary (Maybe TestValue) where
+  arbitrary = oneof [ pure Nothing, fromNullable . getPositive <$> arbitrary ]
+{-
 instance Arbitrary (U.Vector (Maybe TestValue)) where
   arbitrary = U.fromList <$> arbitrary
+-}

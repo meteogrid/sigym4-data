@@ -10,22 +10,26 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Sigym4.Data.Maybe (
-    Maybe(..)
+    Maybe(Nothing)
+  , Nullable (..)
   , isNothing
   , isJust
   , fromMaybe
+  , fromNullable
   , maybe
-  , toVectorWith
-  , fromVectorWith
-  , fromVector
+  , toNullableVectorWith
+  , nullableFromVectorWith
+  , nullableFromVector
 ) where
 
 import Sigym4.Data.Null
 
 import Control.Applicative (Applicative(..), liftA2)
 import Control.DeepSeq (NFData(rnf))
+import Control.Newtype
 
 import Data.Typeable (Typeable)
 
@@ -37,154 +41,184 @@ import qualified Data.Vector.Unboxed.Mutable as UM
 import Foreign.Ptr (castPtr)
 import Foreign.Storable
 
-import Prelude ( Monad(..), Functor(..), Num(..)
-               , Fractional(..), Eq(..), Ord(..), Show(..), Read(..)
-               , Bool(..), (.), ($!), undefined, not
+import Prelude ( Functor(..), Num(..)
+               , Fractional(..), Eq(..), Ord(..), Show(..)
+               , Bool(..), (.), undefined, not, id
                )
 
+-- | A strict version of Prelude's 'Prelude.Maybe' which has many
+-- numeric, 'U.Unbox' and 'Storable' instances implemented for
+-- types which implement instances of 'HasNull'.
+--
+-- 'Just' is not exported so 'Just nullValue' cannot be created.
+-- Implement 'HasNull' and use 'fromNullable' instead.
 data Maybe a
   = Nothing
   | Just !a
-  deriving (Eq, Ord, Read, Show, Typeable, Functor)
+  deriving (Eq, Ord, Show, Typeable, Functor)
 
-instance NFData a => NFData (Maybe a) where
-  rnf (Just a) = rnf a
-  rnf Nothing  = ()
-  {-# INLINE rnf #-}
+newtype Nullable a = Nullable { unNullable :: Maybe a}
+  deriving (Eq, Ord, Show, Typeable, Functor, Applicative, Num, Fractional, NFData)
 
-instance (Storable a, HasNull a) => Storable (Maybe a) where
-  sizeOf _    = sizeOf (undefined :: a)
-  {-# INLINE sizeOf #-}
-  alignment _ = alignment (undefined :: a)
-  {-# INLINE alignment #-}
-  peek p = do
-    v <- peek (castPtr p)
-    return $! if isNull v then Nothing else Just v
-  {-# INLINE peek #-}
-  poke p = poke (castPtr p) . fromMaybe nullValue
-  {-# INLINE poke #-}
+instance Newtype (Nullable a) (Maybe a) where
+  pack   = Nullable
+  {-# INLINE pack #-}
+  unpack = unNullable
+  {-# INLINE unpack #-}
+
+instance Newtype (Maybe a) (Maybe a) where
+  pack   = id
+  {-# INLINE pack #-}
+  unpack = id
+  {-# INLINE unpack #-}
 
 instance Applicative Maybe where
   pure = Just
   {-# INLINE pure #-}
-  Just f   <*>  m = fmap f m
   Nothing  <*> _m = Nothing
+  Just v   <*>  m = fmap v m
   {-# INLINE (<*>) #-}
-  Just _m1   *>  m2 = m2
-  Nothing    *> _m2 = Nothing
+  Nothing   *> _m2 = Nothing
+  Just _    *>  m2 = m2
   {-# INLINE (*>) #-}
 
-instance Monad Maybe where
-  (Just x)   >>= k = k x
-  Nothing    >>= _ = Nothing
-  {-# INLINE (>>=) #-}
-  (>>)             = (*>)
-  {-# INLINE (>>) #-}
-  return           = Just
-  {-# INLINE return #-}
-  fail _           = Nothing
-  {-# INLINE fail #-}
-
-instance (HasNull a, Num a) => Num (Maybe a) where
+instance Num a => Num (Maybe a) where
   (+) = liftA2 (+)
   {-# INLINE (+) #-}
   (-) = liftA2 (-)
   {-# INLINE (-) #-}
   (*) = liftA2 (*)
   {-# INLINE (*) #-}
-  negate = maybe Nothing (fromNullable . negate)
+  negate = fmap negate
   {-# INLINE negate #-}
-  abs = maybe Nothing (fromNullable . abs)
+  abs = fmap abs
   {-# INLINE abs #-}
   signum = fmap signum
   {-# INLINE signum #-}
-  fromInteger = fromNullable . fromInteger
+  fromInteger = Just . fromInteger
   {-# INLINE fromInteger #-}
 
-instance (HasNull a, Fractional a) => Fractional (Maybe a) where
+instance Fractional a => Fractional (Maybe a) where
   (/) = liftA2 (/)
   {-# INLINE (/) #-}
-  recip = maybe Nothing (fromNullable . recip)
+  recip = fmap recip
   {-# INLINE recip #-}
-  fromRational = fromNullable . fromRational
+  fromRational = Just . fromRational
   {-# INLINE fromRational #-}
 
-isNothing :: Maybe a -> Bool
-isNothing Nothing = True
-isNothing _       = False
+
+instance NFData a => NFData (Maybe a) where
+  rnf (Just a )  = rnf a
+  rnf Nothing    = ()
+  {-# INLINE rnf #-}
+
+instance (Storable a, HasNull a) => Storable (Nullable a) where
+  sizeOf _    = sizeOf (undefined :: a)
+  {-# INLINE sizeOf #-}
+  alignment _ = alignment (undefined :: a)
+  {-# INLINE alignment #-}
+  peek = fmap fromNullable . peek . castPtr
+  {-# INLINE peek #-}
+  poke p = poke (castPtr p) . fromMaybe nullValue
+  {-# INLINE poke #-}
+
+isNothing :: Newtype t (Maybe a) => t -> Bool
+isNothing (unpack -> Nothing)   = True
+isNothing _                     = False
 {-# INLINE isNothing #-}
 
-isJust :: Maybe a -> Bool
+isJust :: Newtype t (Maybe a) => t -> Bool
 isJust = not . isNothing
 {-# INLINE isJust #-}
 
-fromMaybe :: a -> Maybe a -> a
-fromMaybe v Nothing   = v
-fromMaybe _ (Just v) = v
+fromMaybe :: Newtype t (Maybe a) => a -> t -> a
+fromMaybe _ (unpack -> Just x) = x
+fromMaybe x _                  = x
 {-# INLINE fromMaybe #-}
 
-maybe :: b -> (a -> b) -> Maybe a -> b
-maybe v _ Nothing  = v
-maybe _ f (Just v) = f v
+maybe :: Newtype t (Maybe a) => b -> (a -> b) -> t -> b
+maybe _ f (unpack -> Just x) = f x
+maybe x _ _                  = x
 {-# INLINE maybe #-}
 
-fromNullable :: HasNull a => a -> Maybe a
-fromNullable v = if isNull v then Nothing else Just v
+-- | Create a 'Maybe' value from a value of the underlying type
+-- which must implement 'HasNull'
+--
+-- If the underlying value satisfies 'isNull' then a 'Nothing'
+-- will be created, else a 'Just'.
+fromNullable :: (Newtype t (Maybe a), HasNull a) => a -> t
+fromNullable v = pack (if isNull v then Nothing else Just v)
 {-# INLINE fromNullable #-}
 
-newtype instance U.Vector    (Maybe a) = V_Maybe  { unVM  :: U.Vector a }
-newtype instance U.MVector s (Maybe a) = MV_Maybe { unVMV :: UM.MVector s a }
-instance (HasNull a, U.Unbox a) => U.Unbox (Maybe a)
+newtype instance U.Vector    (Nullable a) = V_Nullable  { unVN  :: U.Vector a }
+newtype instance U.MVector s (Nullable a) = MV_Nullable { unVNM :: UM.MVector s a }
+instance (HasNull a, U.Unbox a) => U.Unbox (Nullable a)
 
 
-instance (M.MVector UM.MVector a, HasNull a) => M.MVector U.MVector (Maybe a) where
-  basicLength = M.basicLength . unVMV
+instance (M.MVector UM.MVector a, HasNull a) => M.MVector U.MVector (Nullable a) where
+  basicLength = M.basicLength . unVNM
   {-# INLINE basicLength #-}
-  basicUnsafeSlice m n = MV_Maybe . M.basicUnsafeSlice m n . unVMV
+  basicUnsafeSlice m n = MV_Nullable . M.basicUnsafeSlice m n . unVNM
   {-# INLINE basicUnsafeSlice #-}
-  basicOverlaps v = M.basicOverlaps (unVMV v) . unVMV
+  basicOverlaps v = M.basicOverlaps (unVNM v) . unVNM
   {-# INLINE basicOverlaps #-}
-  basicUnsafeNew = fmap MV_Maybe . M.basicUnsafeNew
+  basicUnsafeNew = fmap MV_Nullable . M.basicUnsafeNew
   {-# INLINE basicUnsafeNew #-}
-  basicUnsafeRead v i = do
-    val <- M.basicUnsafeRead (unVMV v) i
-    return $! if isNull val then Nothing else Just val
+  basicUnsafeRead v = fmap fromNullable . M.basicUnsafeRead (unVNM v)
   {-# INLINE basicUnsafeRead #-}
-  basicUnsafeWrite v i = M.basicUnsafeWrite (unVMV v) i . fromMaybe nullValue
+  basicUnsafeWrite v i = M.basicUnsafeWrite (unVNM v) i . fromMaybe nullValue
   {-# INLINE basicUnsafeWrite #-}
 #if MIN_VERSION_vector(0,11,0)
-  basicInitialize = M.basicInitialize . unVMV
+  basicInitialize = M.basicInitialize . unVNM
   {-# INLINE basicInitialize #-}
 #endif
 
-instance (G.Vector U.Vector a, HasNull a) => G.Vector U.Vector (Maybe a) where
-  basicUnsafeFreeze = fmap V_Maybe . G.basicUnsafeFreeze . unVMV
+instance (G.Vector U.Vector a, HasNull a) => G.Vector U.Vector (Nullable a) where
+  basicUnsafeFreeze = fmap V_Nullable . G.basicUnsafeFreeze . unVNM
   {-# INLINE basicUnsafeFreeze #-}
-  basicUnsafeThaw = fmap MV_Maybe . G.basicUnsafeThaw . unVM
+  basicUnsafeThaw = fmap MV_Nullable . G.basicUnsafeThaw . unVN
   {-# INLINE basicUnsafeThaw #-}
-  basicLength = G.basicLength . unVM
+  basicLength = G.basicLength . unVN
   {-# INLINE basicLength #-}
-  basicUnsafeSlice m n = V_Maybe . G.basicUnsafeSlice m n . unVM
+  basicUnsafeSlice m n = V_Nullable . G.basicUnsafeSlice m n . unVN
   {-# INLINE basicUnsafeSlice #-}
-  basicUnsafeIndexM v i = do
-    val <- G.basicUnsafeIndexM (unVM v) i
-    return $! if isNull val then Nothing else Just val
+  basicUnsafeIndexM v = fmap fromNullable . G.basicUnsafeIndexM (unVN v)
   {-# INLINE basicUnsafeIndexM #-}
 
-fromVector
-  :: (G.Vector v a, G.Vector v (Maybe a), HasNull a)
-  => v a -> v (Maybe a)
-fromVector = G.map fromNullable
-{-# INLINE fromVector #-}
+-- | Create a vector of 'Nullables's from a vector of the underlying
+-- type which represents the absence of a value with the same
+-- 'nullValue' as defined in the type's 'HasNull' instance.
+--
+-- This *should not* be used to interface with external sources
+-- (eg: 'Storable' vectors from ffi) which might
+-- represent the null value with a different 'nullValue'. Use
+-- 'nullableFromVectorWith' instead.
+nullableFromVector
+  :: (G.Vector v a, G.Vector v (Nullable a), HasNull a)
+  => v a -> v (Nullable a)
+nullableFromVector = G.map fromNullable
+{-# INLINE nullableFromVector #-}
 
-fromVectorWith
-  :: (G.Vector v a, G.Vector v (Maybe a), Eq a )
-  => a -> v a -> v (Maybe a)
-fromVectorWith nd = G.map (\v -> if v==nd then Nothing else Just v)
-{-# INLINE fromVectorWith #-}
+-- | Create a vector of 'Nullables's from a vector of the underlying
+-- type and a given "null" value.
+--
+-- This can be used to interface with external sources
+-- (eg: 'Storable' vectors from ffi) which might
+-- represent the null value with a different 'nullValue'.
+nullableFromVectorWith
+  :: (G.Vector v a, G.Vector v (Nullable a), Eq a)
+  => a -> v a -> v (Nullable a)
+nullableFromVectorWith nd = G.map (pack . (\v -> if v==nd then Nothing else Just v))
+{-# INLINE nullableFromVectorWith #-}
 
-toVectorWith
-  :: (G.Vector v a, G.Vector v (Maybe a))
-  => a -> v (Maybe a) -> v a
-toVectorWith nd = G.map (fromMaybe nd)
-{-# INLINE toVectorWith #-}
+-- | Unwrap a vector of 'Nullable's to a vector of the underlying
+-- type with a given "null" value.
+--
+-- This can be used to interface with external sources
+-- (eg: 'Storable' vectors from ffi) which might
+-- represent the null value with a different 'nullValue'.
+toNullableVectorWith
+  :: (G.Vector v a, G.Vector v (Nullable a))
+  => a -> v (Nullable a) -> v a
+toNullableVectorWith nd = G.map (fromMaybe nd)
+{-# INLINE toNullableVectorWith #-}
