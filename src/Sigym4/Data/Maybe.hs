@@ -13,7 +13,7 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Sigym4.Data.Maybe (
-    Maybe(Nothing)
+    Maybe(..)
   , Nullable (..)
   , MaskType
   , isNothing
@@ -46,21 +46,28 @@ import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Foreign.Storable
 
 import Prelude ( Functor(..), Num(..)
-               , Fractional(..), Eq(..), Ord(..), Show(..)
+               , Fractional(..), Eq(..), Ord(..), Show(..), Read (..)
                , Bool(..), (.), return, undefined, not, id, (>>), ($!)
                )
 
 -- | A strict version of Prelude's 'Prelude.Maybe' which has many
--- numeric, 'U.Unbox' and 'Storable' instances implemented for
--- types which implement instances of 'HasNull'.
+-- numeric, 'U.Unbox' and 'Storable' instances implemented.
 --
--- 'Just' is not exported so 'Just nullValue' cannot be created.
--- Implement 'HasNull' and use 'fromNullable' instead.
+-- 'Storable and 'U.Unbox' instances use a separate mask value to indicate
+-- the presence or absence of a value. This allows any value of the
+-- domain to be used safely in computations at the cost of a larger memory
+-- footprint and possibly worse cache locality.
 data Maybe a
   = Nothing
   | Just !a
-  deriving (Eq, Ord, Show, Typeable, Functor)
+  deriving (Eq, Ord, Show, Read, Typeable, Functor)
 
+-- | A newtype of Maybe which uses a special 'nullValue' to indicate the absence
+-- of data.
+--
+-- Unbox and Storable instances are more efficient but risk producing garbage if
+-- a 'Just nullValue' is ever produced and manipulated. This is not checked
+-- for performance reasons, which is the reason this type is implemented after all.
 newtype Nullable a = Null { unNullable :: Maybe a}
   deriving (Eq, Ord, Show, Typeable, Functor, Applicative, Num, Fractional, NFData)
 
@@ -75,6 +82,8 @@ instance Newtype (Maybe a) (Maybe a) where
   {-# INLINE pack #-}
   unpack = id
   {-# INLINE unpack #-}
+
+
 
 instance Applicative Maybe where
   pure = Just
@@ -110,6 +119,7 @@ instance Fractional a => Fractional (Maybe a) where
   fromRational = Just . fromRational
   {-# INLINE fromRational #-}
 
+--TBD: Implement 'Floating' and 'RealFloat' instances
 
 instance NFData a => NFData (Maybe a) where
   rnf (Just a )  = rnf a

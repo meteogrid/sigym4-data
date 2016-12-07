@@ -99,7 +99,7 @@ newtype TestValue = TV Double
     , Arbitrary)
 
 instance Eq TestValue where
-  TV a == TV b = abs (a-b) < 1e-12
+  TV a == TV b = abs (a-b) < 1e-4
 
 derivingUnbox "TestValue"
     [t| TestValue -> Double |]
