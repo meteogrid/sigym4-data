@@ -13,19 +13,26 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Sigym4.Data.Maybe (
+-- * Types
     Maybe(..)
-  , Nullable (..)
   , MaskType
+-- * Basic functions
   , isNothing
   , isJust
   , fromMaybe
-  , fromNullable
   , maybe
-  , toNullableVectorWith
-  , nullableFromVectorWith
-  , nullableFromVector
+-- * Functions for 'G.Vector's
   , fromMaskAndVector
   , toMaskAndVector
+-- * 'Nullable'
+-- ** Types
+  , Nullable (..)
+-- ** Functions
+  , fromNullable
+-- ** Functions for 'G.Vector's
+  , nullableFromVector
+  , nullableFromVectorWith
+  , toNullableVectorWith
 ) where
 
 import Sigym4.Data.Null
@@ -53,7 +60,7 @@ import Prelude ( Functor(..), Num(..)
 -- | A strict version of Prelude's 'Prelude.Maybe' which has many
 -- numeric, 'U.Unbox' and 'Storable' instances implemented.
 --
--- 'Storable and 'U.Unbox' instances use a separate mask value to indicate
+-- 'Storable' and 'U.Unbox' instances use a separate 'MaskType' value to indicate
 -- the presence or absence of a value. This allows any value of the
 -- domain to be used safely in computations at the cost of a larger memory
 -- footprint and possibly worse cache locality.
@@ -62,12 +69,14 @@ data Maybe a
   | Just !a
   deriving (Eq, Ord, Show, Read, Typeable, Functor)
 
--- | A newtype of Maybe which uses a special 'nullValue' to indicate the absence
+-- | A newtype of 'Maybe' which uses a special 'nullValue' to indicate the absence
 -- of data.
 --
--- Unbox and Storable instances are more efficient but risk producing garbage if
--- a 'Just nullValue' is ever produced and manipulated. This is not checked
--- for performance reasons, which is the reason this type is implemented after all.
+-- 'U.Unbox' and 'Storable' instances are more efficient but risk producing garbage if
+-- a @Just nullValue@ is ever produced and manipulated.
+--
+-- This is not checked for performance reasons, which is the reason this type is
+-- implemented after all.
 newtype Nullable a = Null { unNullable :: Maybe a}
   deriving (Eq, Ord, Show, Typeable, Functor, Applicative, Num, Fractional, NFData)
 
@@ -220,12 +229,12 @@ instance (G.Vector U.Vector a, HasNull a) => G.Vector U.Vector (Nullable a) wher
   basicUnsafeIndexM v = fmap fromNullable . G.basicUnsafeIndexM (unVN v)
   {-# INLINE basicUnsafeIndexM #-}
 
--- | Create a vector of 'Nullables's from a vector of the underlying
+-- | Create a vector of 'Nullable's from a vector of the underlying
 -- type which represents the absence of a value with the same
 -- 'nullValue' as defined in the type's 'HasNull' instance.
 --
 -- This *should not* be used to interface with external sources
--- (eg: 'Storable' vectors from ffi) which might
+-- (eg: 'Storable' 'St.Vector's from ffi) which might
 -- represent the null value with a different 'nullValue'. Use
 -- 'nullableFromVectorWith' instead.
 nullableFromVector
@@ -234,11 +243,11 @@ nullableFromVector
 nullableFromVector = G.map fromNullable
 {-# INLINE nullableFromVector #-}
 
--- | Create a vector of 'Nullables's from a vector of the underlying
+-- | Create a vector of 'Nullable's from a vector of the underlying
 -- type and a given "null" value.
 --
 -- This can be used to interface with external sources
--- (eg: 'Storable' vectors from ffi) which might
+-- (eg: 'Storable' 'St.Vector's from ffi) which might
 -- represent the null value with a different 'nullValue'.
 nullableFromVectorWith
   :: (G.Vector v a, G.Vector v (Nullable a), Eq a)
@@ -250,7 +259,7 @@ nullableFromVectorWith nd = G.map (pack . (\v -> if v==nd then Nothing else Just
 -- type with a given "null" value.
 --
 -- This can be used to interface with external sources
--- (eg: 'Storable' vectors from ffi) which might
+-- (eg: 'Storable' 'St.Vector's from ffi) which might
 -- represent the null value with a different 'nullValue'.
 toNullableVectorWith
   :: (G.Vector v a, G.Vector v (Nullable a))
@@ -317,8 +326,8 @@ instance U.Unbox a => M.MVector U.MVector (Maybe a) where
   {-# INLINE basicInitialize #-}
 #endif
 
--- | Create a vector of 'Maybes's from a vector of the underlying
--- type and a vector of 'MaskType's without copying.
+-- | Create a 'U.Vector' of 'Maybe's from a 'U.Vector' of the underlying
+-- type and a 'U.Vector' of 'MaskType's without copying.
 --
 -- Time complexity: O(1)
 --
@@ -330,13 +339,13 @@ fromMaskAndVector vm v = V_Maybe (G.unsafeSlice 0 len vm, G.unsafeSlice 0 len v)
   where len = min (G.length vm) (G.length v)
 {-# INLINE fromMaskAndVector #-}
 
--- | Unwrap a vector of 'Maybes's to a vector of the underlying
--- type and a vector of 'MaskType's without copying them
+-- | Unwrap a 'U.Vector' of 'Maybe's to a 'U.Vector' of the underlying
+-- type and a 'U.Vector' of 'MaskType's without copying them
 --
 --  Time complexity: O(1)
 --
 -- This can be used to interface with external sources
--- (eg: by converting them to 'Storable' vectors)
+-- (eg: by converting them to 'Storable' 'St.Vector's)
 toMaskAndVector
   :: U.Vector (Maybe a) -> (U.Vector MaskType, U.Vector a)
 toMaskAndVector (V_Maybe a) = a
