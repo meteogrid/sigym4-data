@@ -35,7 +35,8 @@ import           Data.String ( fromString )
 import           Data.Typeable
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Vector.Storable ( Vector, Storable )
+import qualified Data.Vector.Generic as G
+import qualified Data.Vector.Storable as St
 import           GHC.TypeLits
 import           GHC.Exts (Constraint)
 import           Text.PrettyPrint hiding ((<>))
@@ -638,14 +639,13 @@ type IsVectorInput m crs dim a =
   , MonadError LoadError m
   )
 
-type IsRasterBand b m crs a =
+type IsRasterBand   b m crs a =
   ( HasBlockSize    b m
   , HasNodataValue  b m     a
   , HasCrs          b m
   , HasRasterSize   b m
   , HasGeoReference b m crs
   , HasReadBlock    b m     a
-  , Storable                a
   )
 
 type IsVectorLayer l m crs a =
@@ -680,10 +680,19 @@ class HasSourceFingerprint m where
 
 type BlockIndex = Size V2
 
-class Storable a => HasReadBlock b m a | b -> m, b -> a where
-  readBlock :: b -> BlockIndex -> m (Vector a)
+class IsStorableVector (BlockVectorType b m) a => HasReadBlock b m a | b -> m, b -> a where
+  type BlockVectorType b m :: * -> *
+  readBlock :: b -> BlockIndex -> m (BlockVectorType b m a)
 
+class (St.Storable (StorableElem v a), G.Vector v a) => IsStorableVector v a where
+  type StorableElem v a :: *
+  toStorable   :: v a -> St.Vector (StorableElem v a)
+  fromStorable :: St.Vector (StorableElem v a) -> v a
 
+instance St.Storable a => IsStorableVector St.Vector a where
+  type StorableElem St.Vector a = a
+  toStorable   = id
+  fromStorable = id
 
 -- | Crea un 'Doc' con el arbol de sintaxis de una variable
 prettyAST

@@ -21,6 +21,7 @@ import           Control.Monad.Trans.Either
 import           Control.Newtype
 import           Data.Functor.Identity
 import           Data.List (isInfixOf)
+import qualified Data.Vector.Storable as St
 import           Data.Maybe
 
 import           Test.Hspec
@@ -178,8 +179,11 @@ data DummyBand crs a = DummyBand
 type instance AST.Exp DummyInterpreter = Identity
 type instance AST.RasterBand DummyInterpreter crs a = DummyBand crs a
 
-instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a
-  where readBlock = error "not implemented"
+
+instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a where
+  type BlockVectorType (DummyBand crs a) DummyInterpreter = St.Vector
+  readBlock = error "not implemented"
+
 instance AST.HasBlockSize (DummyBand crs a) DummyInterpreter where
   blockSize = return . const (Size 256)
 instance AST.HasRasterSize (DummyBand crs a) DummyInterpreter where

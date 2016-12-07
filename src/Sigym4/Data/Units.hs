@@ -1,24 +1,29 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Sigym4.Data.Units (
   module Sigym4.Data.Units
 , module Numeric.IEEE
 , module DP
+, module Data.Default
 ) where
 
-import           Data.Functor.Identity
+import           Sigym4.Data.Null (HasNull)
+import           Data.Default (Default(..))
 import           Numeric.IEEE (IEEE(..))
 import qualified Numeric.Units.Dimensional as DP
 
 type family UnitQuantity (u :: * -> *) a = q
 
 class ( Num (e (MachineType q))
-      , IEEE (e (MachineType q))
+      , HasNull (e (MachineType q))
+      , Default (Units q)
       ) => HasUnits q e where
   type Units q       :: *
   type MachineType q :: *
@@ -36,27 +41,13 @@ class ( Num (e (MachineType q))
 
 type instance UnitQuantity (DP.Unit k d) a = DP.Quantity d a
 
-instance (IEEE (e a), Num (e a))
-  => HasUnits (DP.Unit k u a) e where
+instance ( Num (e a)
+         , HasNull (e a)
+         , Default (DP.Unit k u a)
+         ) => HasUnits (DP.Unit k u a) e where
   type Units (DP.Unit k u a) = DP.Unit k u a
   type MachineType (DP.Unit k u a) = a
-  (*~) = undefined -- (DP.*~)
-  (/~) = undefined -- (DP./~)
+  (*~) = undefined -- (DP.*~) --TBD
+  (/~) = undefined -- (DP./~) --TBD
   {-# INLINE (*~) #-}
   {-# INLINE (/~) #-}
-
-instance IEEE a => IEEE (Identity a) where
-  infinity     = pure infinity
-  minNormal    = pure minNormal
-  maxFinite    = pure maxFinite
-  epsilon      = pure epsilon
-  copySign a b = pure (copySign (runIdentity a) (runIdentity b))
-  identicalIEEE a b = identicalIEEE (runIdentity a) (runIdentity b)
-  succIEEE     = fmap succIEEE
-  predIEEE     = fmap predIEEE
-  bisectIEEE a b = pure (bisectIEEE (runIdentity a) (runIdentity b))
-  sameSignificandBits a b = sameSignificandBits (runIdentity a) (runIdentity b)
-  nan          = pure nan
-  nanWithPayload = pure . nanWithPayload
-  maxNaNPayload = maxNaNPayload . runIdentity
-  nanPayload = nanPayload . runIdentity

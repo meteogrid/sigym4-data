@@ -18,6 +18,8 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Sigym4.Data
                      , Sigym4.Data.Units
+                     , Sigym4.Data.Null
+                     , Sigym4.Data.Maybe
                      , Sigym4.Data.AST
                      , Sigym4.Data.Generic
                      , Sigym4.Data.Fingerprint
@@ -58,6 +60,7 @@ test-suite spec
                   , should-not-typecheck
                   , QuickCheck
                   , either
+                  , vector
   hs-source-dirs:   test
   main-is:          Spec.hs
   default-language: Haskell2010
