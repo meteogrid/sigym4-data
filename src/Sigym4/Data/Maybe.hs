@@ -19,6 +19,7 @@ module Sigym4.Data.Maybe (
   , maybe
   , toVectorWith
   , fromVectorWith
+  , fromVector
 ) where
 
 import Sigym4.Data.Null
@@ -91,22 +92,21 @@ instance (HasNull a, Num a) => Num (Maybe a) where
   {-# INLINE (-) #-}
   (*) = liftA2 (*)
   {-# INLINE (*) #-}
-  negate (Just n) = let n' = negate n in if isNull n' then Nothing else Just n'
-  negate Nothing  = Nothing
+  negate = maybe Nothing (fromNullable . negate)
   {-# INLINE negate #-}
-  abs = fmap abs
+  abs = maybe Nothing (fromNullable . abs)
   {-# INLINE abs #-}
   signum = fmap signum
   {-# INLINE signum #-}
-  fromInteger v = let v' = fromInteger v in if isNull v' then Nothing else Just v'
+  fromInteger = fromNullable . fromInteger
   {-# INLINE fromInteger #-}
 
 instance (HasNull a, Fractional a) => Fractional (Maybe a) where
   (/) = liftA2 (/)
   {-# INLINE (/) #-}
-  recip = fmap recip
+  recip = maybe Nothing (fromNullable . recip)
   {-# INLINE recip #-}
-  fromRational v = let v' = fromRational v in if isNull v' then Nothing else Just v'
+  fromRational = fromNullable . fromRational
   {-# INLINE fromRational #-}
 
 isNothing :: Maybe a -> Bool
@@ -127,6 +127,10 @@ maybe :: b -> (a -> b) -> Maybe a -> b
 maybe v _ Nothing  = v
 maybe _ f (Just v) = f v
 {-# INLINE maybe #-}
+
+fromNullable :: HasNull a => a -> Maybe a
+fromNullable v = if isNull v then Nothing else Just v
+{-# INLINE fromNullable #-}
 
 newtype instance U.Vector    (Maybe a) = V_Maybe  { unVM  :: U.Vector a }
 newtype instance U.MVector s (Maybe a) = MV_Maybe { unVMV :: UM.MVector s a }
@@ -166,6 +170,12 @@ instance (G.Vector U.Vector a, HasNull a) => G.Vector U.Vector (Maybe a) where
     val <- G.basicUnsafeIndexM (unVM v) i
     return $! if isNull val then Nothing else Just val
   {-# INLINE basicUnsafeIndexM #-}
+
+fromVector
+  :: (G.Vector v a, G.Vector v (Maybe a), HasNull a)
+  => v a -> v (Maybe a)
+fromVector = G.map fromNullable
+{-# INLINE fromVector #-}
 
 fromVectorWith
   :: (G.Vector v a, G.Vector v (Maybe a), Eq a )
