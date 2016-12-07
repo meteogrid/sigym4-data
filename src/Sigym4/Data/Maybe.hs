@@ -15,6 +15,7 @@
 module Sigym4.Data.Maybe (
     Maybe(Nothing)
   , Nullable (..)
+  , MaskType
   , isNothing
   , isJust
   , fromMaybe
@@ -23,11 +24,13 @@ module Sigym4.Data.Maybe (
   , toNullableVectorWith
   , nullableFromVectorWith
   , nullableFromVector
+  , fromMaskAndVector
+  , toMaskAndVector
 ) where
 
 import Sigym4.Data.Null
 
-import Control.Applicative (Applicative(..), liftA2)
+import Control.Applicative (Applicative(..), (<$>), liftA2)
 import Control.DeepSeq (NFData(rnf))
 import Control.Newtype
 
@@ -37,13 +40,14 @@ import qualified Data.Vector.Generic.Mutable as M
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Unboxed.Base as U
 import qualified Data.Vector.Unboxed.Mutable as UM
+import           Data.Word
 
-import Foreign.Ptr (castPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import Foreign.Storable
 
 import Prelude ( Functor(..), Num(..)
                , Fractional(..), Eq(..), Ord(..), Show(..)
-               , Bool(..), (.), undefined, not, id
+               , Bool(..), (.), return, undefined, not, id, (>>), ($!)
                )
 
 -- | A strict version of Prelude's 'Prelude.Maybe' which has many
@@ -57,11 +61,11 @@ data Maybe a
   | Just !a
   deriving (Eq, Ord, Show, Typeable, Functor)
 
-newtype Nullable a = Nullable { unNullable :: Maybe a}
+newtype Nullable a = Null { unNullable :: Maybe a}
   deriving (Eq, Ord, Show, Typeable, Functor, Applicative, Num, Fractional, NFData)
 
 instance Newtype (Nullable a) (Maybe a) where
-  pack   = Nullable
+  pack   = Null
   {-# INLINE pack #-}
   unpack = unNullable
   {-# INLINE unpack #-}
@@ -122,6 +126,25 @@ instance (Storable a, HasNull a) => Storable (Nullable a) where
   poke p = poke (castPtr p) . fromMaybe nullValue
   {-# INLINE poke #-}
 
+type MaskType = Word8
+
+instance Storable a => Storable (Maybe a) where
+  sizeOf _    = sizeOf (undefined :: a) + sizeOf (undefined :: MaskType)
+  {-# INLINE sizeOf #-}
+  alignment _ = alignment (undefined :: a) --XXX: Is this True?
+  {-# INLINE alignment #-}
+  peek p = do
+    let pm = castPtr p :: Ptr MaskType
+    m <- peek pm
+    if m==0 then return $! Nothing else Just <$> peek (castPtr (plusPtr pm 1))
+  {-# INLINE peek #-}
+  poke p v =
+    case v of
+      Just v' -> poke pm 1 >> poke (castPtr (plusPtr pm 1)) v'
+      _       -> poke pm 0
+    where pm = castPtr p :: Ptr MaskType
+  {-# INLINE poke #-}
+
 isNothing :: Newtype t (Maybe a) => t -> Bool
 isNothing (unpack -> Nothing)   = True
 isNothing _                     = False
@@ -149,6 +172,8 @@ maybe x _ _                  = x
 fromNullable :: (Newtype t (Maybe a), HasNull a) => a -> t
 fromNullable v = pack (if isNull v then Nothing else Just v)
 {-# INLINE fromNullable #-}
+
+
 
 newtype instance U.Vector    (Nullable a) = V_Nullable  { unVN  :: U.Vector a }
 newtype instance U.MVector s (Nullable a) = MV_Nullable { unVNM :: UM.MVector s a }
@@ -222,3 +247,87 @@ toNullableVectorWith
   => a -> v (Nullable a) -> v a
 toNullableVectorWith nd = G.map (fromMaybe nd)
 {-# INLINE toNullableVectorWith #-}
+
+
+
+
+newtype instance U.Vector    (Maybe a) = V_Maybe  (U.Vector MaskType, U.Vector a)
+newtype instance U.MVector s (Maybe a) = MV_Maybe (UM.MVector s MaskType, UM.MVector s a)
+instance U.Unbox a => U.Unbox (Maybe a)
+
+instance U.Unbox a => G.Vector U.Vector (Maybe a) where
+  basicUnsafeFreeze (MV_Maybe (x,v)) =
+    V_Maybe <$> ((,) <$> G.basicUnsafeFreeze x <*> G.basicUnsafeFreeze v)
+  {-# INLINE basicUnsafeFreeze #-}
+
+  basicUnsafeThaw (V_Maybe (x,v)) =
+    MV_Maybe <$> ((,) <$> G.basicUnsafeThaw x <*> G.basicUnsafeThaw v)
+  {-# INLINE basicUnsafeThaw #-}
+
+  basicLength  (V_Maybe (_,v)) = G.basicLength v
+  {-# INLINE basicLength #-}
+
+  basicUnsafeSlice m n (V_Maybe (x,v)) =
+    V_Maybe (G.basicUnsafeSlice m n x, G.basicUnsafeSlice m n v)
+  {-# INLINE basicUnsafeSlice #-}
+
+  basicUnsafeIndexM (V_Maybe (x,v)) i = do
+    m <- G.basicUnsafeIndexM x i
+    if m/=0 then Just <$> G.basicUnsafeIndexM v i
+            else return $! Nothing
+  {-# INLINE basicUnsafeIndexM #-}
+
+instance U.Unbox a => M.MVector U.MVector (Maybe a) where
+  basicLength (MV_Maybe (_,v)) = M.basicLength v
+  {-# INLINE basicLength #-}
+
+  basicUnsafeSlice m n (MV_Maybe (x,v)) =
+    MV_Maybe (M.basicUnsafeSlice m n x, M.basicUnsafeSlice m n v)
+  {-# INLINE basicUnsafeSlice #-}
+
+  basicOverlaps (MV_Maybe (_,v)) (MV_Maybe (_,v')) = M.basicOverlaps v v'
+  {-# INLINE basicOverlaps #-}
+
+  basicUnsafeNew i =
+    MV_Maybe <$> ((,) <$> M.basicUnsafeNew i <*> M.basicUnsafeNew i)
+  {-# INLINE basicUnsafeNew #-}
+
+  basicUnsafeRead (MV_Maybe (x,v)) i = do
+    m <- M.basicUnsafeRead x i
+    if m/=0 then Just <$> M.basicUnsafeRead v i
+            else return $! Nothing
+  {-# INLINE basicUnsafeRead #-}
+
+  basicUnsafeWrite (MV_Maybe (x,v)) i =
+    maybe (M.basicUnsafeWrite x i 0)
+          (\a -> M.basicUnsafeWrite x i 1 >> M.basicUnsafeWrite v i a)
+
+#if MIN_VERSION_vector(0,11,0)
+  basicInitialize (MV_Maybe (x,v)) = M.basicInitialize x >> M.basicInitialize v
+  {-# INLINE basicInitialize #-}
+#endif
+
+-- | Create a vector of 'Maybes's from a vector of the underlying
+-- type and a vector of 'MaskType's without copying.
+--
+-- Time complexity: O(1)
+--
+-- This can be used to interface with external sources which provide
+-- a mask array
+fromMaskAndVector
+  :: U.Unbox a => U.Vector MaskType -> U.Vector a -> U.Vector (Maybe a)
+fromMaskAndVector vm v = V_Maybe (G.unsafeSlice 0 len vm, G.unsafeSlice 0 len v)
+  where len = min (G.length vm) (G.length v)
+{-# INLINE fromMaskAndVector #-}
+
+-- | Unwrap a vector of 'Maybes's to a vector of the underlying
+-- type and a vector of 'MaskType's without copying them
+--
+--  Time complexity: O(1)
+--
+-- This can be used to interface with external sources
+-- (eg: by converting them to 'Storable' vectors)
+toMaskAndVector
+  :: U.Vector (Maybe a) -> (U.Vector MaskType, U.Vector a)
+toMaskAndVector (V_Maybe a) = a
+{-# INLINE toMaskAndVector #-}
