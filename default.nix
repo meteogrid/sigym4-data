@@ -3,7 +3,7 @@
 , dimensional-parsers, either, hspec, ieee754, mtl, newtype, pretty
 , QuickCheck, should-not-typecheck, sigym4-dimension
 , sigym4-geometry, spatial-reference, stdenv, template-haskell
-, text, time, vector
+, text, time, vector, vector-th-unbox
 }:
 mkDerivation {
   pname = "sigym4-data";
@@ -17,6 +17,7 @@ mkDerivation {
   ];
   testHaskellDepends = [
     base either hspec newtype QuickCheck should-not-typecheck time
+    vector vector-th-unbox
   ];
   license = stdenv.lib.licenses.bsd3;
 }
