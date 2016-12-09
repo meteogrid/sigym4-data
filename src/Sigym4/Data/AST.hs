@@ -200,27 +200,27 @@ data Variable
     -> Variable m t crs dim  a
 
 
-  -- | Indica al interprete que se esfuerze en cachear una variable
-  --   cuando su indice dimensional pase el predicado.
-  --
-  --   Esto es util para variables recursivas (eg: canadiense, dias sin
-  --   precipitacion, etc..)
-  --
-  --   El interprete es libre de no hacerlo o de insertar nodos de estos
-  --   automaticamente si lo cree necesario.
-  --
-  CheckPoint ::
-    ( Dimension dim
-    )
-    => (DimensionIx dim -> Bool)
-    -> Variable m t crs dim a
-    -> Variable m t crs dim a
-
   -- | Asigna una descripcion a una variable
   --
   Describe ::
        Description
     -> Variable m t crs dim a
+    -> Variable m t crs dim a
+
+
+  -- | Un left-fold sobre todos los indices dimensionales dada una funcion 'f',
+  -- un valor inicial (ie: (ix0,v0)) y una variable b.
+  --
+  -- Sirve para implementar variables recursivas (eg: canadiense, dias sin
+  -- precipitacion, etc)
+  FoldDim
+    :: ( Interpretable m t a
+       , Interpretable m t b
+       , IsVariable m t crs dim b
+       )
+    => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+    -> (DimensionIx dim, Variable m t crs dim a)
+    -> Variable m t crs dim b
     -> Variable m t crs dim a
 
 
@@ -253,6 +253,9 @@ type IsVariable m t crs dim a  =
   ( Typeable (Variable m t crs dim a)
   , Typeable m, Typeable t, Typeable crs, Typeable dim, Typeable a
   , HasDescription (Variable m t crs dim a)
+  , Show (DimensionIx dim)
+  , Eq (DimensionIx dim)
+  , NFData (DimensionIx dim)
   )
 
 type IsInput m t crs dim a = 
@@ -342,7 +345,7 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (AdaptDim v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
-  rnf (CheckPoint v1 v2) = rnf v1 `seq` rnf v2
+  rnf (FoldDim z f v) = rnf z `seq` rnf f `seq` rnf v
   rnf (Describe v1 v2) = rnf v1 `seq` rnf v2
   rnf (Map v1 v2) = rnf v1 `seq` rnf v2
   rnf (ZipWith v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
@@ -669,9 +672,10 @@ prettyAST = go maxDepth where
   go !n (AdaptDim dim _ s2) =
     withBullet "AdaptDim" <+> text (show dim) $$
       nextVar (goN n s2)
-  go !n (CheckPoint _ s2) =
-    withBullet "CheckPoint" $$
-      nextVar (goN n s2)
+  go !n (FoldDim _ (i,z) v) =
+    withBullet "FoldDim" <+> text (show i) $$
+      "base case: " <+> text (show i) $+$ nextVar (goN n z) $$
+      nextVar (goN n v)
   go !n (Describe desc var) =
     text (T.unpack desc) <+> prettyVarType var $+$
       nextVar (goN n var)
@@ -712,7 +716,7 @@ instance HasDescription (Variable m t crs dim a) where
   description (Sample _ v w) = description w <> " sampled over " <> description v
   description (Aggregate _ v w) = description w <> " aggregated over " <> description v
   description (AdaptDim d _ w) = description w <> " adapted to " <> fromString (show d)
-  description (CheckPoint _ w) = "CheckPoint for " <> description w
+  description (FoldDim _ _ w) = "FoldDim over " <> description w
   description (Describe v _) = v
   description (Map _ v) = "Function of " <> description v
   description (ZipWith _ v w) = "Function of " <> description v <> " and " <> description w
@@ -738,7 +742,7 @@ instance HasDimension (Variable m t crs dim a) dim where
   dimension (Sample _ _ v)           = dimension v
   dimension (Aggregate _ _ v)        = dimension v
   dimension (AdaptDim d _ _)         = d
-  dimension (CheckPoint _ v)         = dimension v
+  dimension (FoldDim _ _ v)          = dimension v
   dimension (Describe _ v)           = dimension v
   dimension (Map _ v)                = dimension v
   -- En las aplicaciones de mas de una variable cogemos la dimension
@@ -803,7 +807,9 @@ instance MonadError LoadError m
 
     in loop (fun ix)
 
-  calculateFingerprint (CheckPoint _ v) = calculateFingerprint v
+  calculateFingerprint (FoldDim f (ix0,z) v) = \ix ->
+    if ix==ix0 then calculateFingerprint z ix else combineVarFPWith v f ix
+
   calculateFingerprint (Describe   _ v) = calculateFingerprint v
 
   -- La huella de la aplicaciones es la huella de la funcion combinada

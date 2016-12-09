@@ -40,7 +40,6 @@ module Sigym4.Data.Generic (
 , CanAggregate
 , aggregate
 
-, checkpoint
 , describe
 
 , Interpretable
@@ -49,6 +48,7 @@ module Sigym4.Data.Generic (
 , input
 , IsConst
 , const
+, foldDim
 , map
 , zipWith
 
@@ -198,21 +198,21 @@ zipWith
 zipWith = ZipWith
 
 
--- | Indica al interprete que se esfuerze en cachear una variable
--- cuando su indice dimensional pase el predicado.
+-- | Un left-fold sobre todos los indices dimensionales dada una funcion 'f',
+-- un valor inicial (ie: (ix0,v0)) y una variable b.
 --
--- Esto es util para variables recursivas (eg: canadiense, dias sin
--- precipitacion, etc..)
---
--- El interprete es libre de no hacerlo o de insertar nodos de estos
--- automaticamente si lo cree necesario.
-checkpoint ::
-  ( Dimension dim
-  )
-  => (DimensionIx dim -> Bool)
+-- Sirve para implementar variables recursivas (eg: canadiense, dias sin
+-- precipitacion, etc)
+foldDim
+  :: ( Interpretable m t a
+     , Interpretable m t b
+     , IsVariable m t crs dim b
+     )
+  => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+  -> (DimensionIx dim, Variable m t crs dim a)
+  -> Variable m t crs dim b
   -> Variable m t crs dim a
-  -> Variable m t crs dim a
-checkpoint = CheckPoint
+foldDim = FoldDim
 
 
 -- | Le da nombre a una 'Variable'. Unicamente sirve para consumo
@@ -223,7 +223,6 @@ describe
   -> Variable m t crs dim a
   -> Variable m t crs dim a
 describe = Describe
-
 
 -- | Recorre todas las hojas del AST de la misma dimension en
 -- pre-orden.
@@ -261,7 +260,8 @@ foldLeaves f = go maxDepth where
   go !n z (Aggregate _ w w')     = go (n-1) z w
                                >>=  flip (go (n-1)) w'
   go !_ z v@AdaptDim{}           = f z v
-  go !n z (CheckPoint _ w)       = go (n-1) z w
+  go !n z (FoldDim _ (_,w) w')   = go (n-1) z w
+                               >>= flip (go (n-1)) w'
   go !n z (Describe   _ w)       = go (n-1) z w
   go !n z (Map _ w)              = go (n-1) z w
   go !n z (ZipWith _ w w')       = go (n-1) z w
@@ -346,8 +346,10 @@ getMissingInputs = go 100 [] where
               else -- seguimos probando
                 loop xs' ix'
 
-  go !n z (CheckPoint _ v)   ix = go (n-1) z v ix
-  go !n z (Describe   _ v)   ix = go (n-1) z v ix
-  go !n z (Map        _ v)   ix = go (n-1) z v ix
-  go !n z (ZipWith    _ v w) ix = go (n-1) z v ix
+  go !n z (FoldDim _ (ix0,v0) v) ix
+    | ix==ix0   = go (n-1) z v0 ix
+    | otherwise = go (n-1) z v ix
+  go !n z (Describe   _ v)   ix    = go (n-1) z v ix
+  go !n z (Map        _ v)   ix    = go (n-1) z v ix
+  go !n z (ZipWith    _ v w) ix    = go (n-1) z v ix
                                           >>= \z' -> go (n-1) z' w ix

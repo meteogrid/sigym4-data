@@ -77,8 +77,6 @@ module Sigym4.Data (
 , zipWith
 
 -- ** Metadatos de 'Variable's
--- *** 'checkpoint'
-, checkpoint
 -- *** 'describe'
 , describe
 
