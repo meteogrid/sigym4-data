@@ -25,6 +25,9 @@ module Sigym4.Data.Generic (
 , CanAdaptDim
 , adaptDim
 
+, Contourable
+, contour
+
 , CanWarp
 , warp
 
@@ -97,6 +100,15 @@ ofDimension
   => (DimensionIx dim -> a) -> dim
   -> Variable m t crs dim a
 ofDimension = DimensionDependant
+
+-- | Crea isolineas a partir de un raster
+--
+contour
+  :: Contourable m a
+  => ContourSettings    m                  a
+  -> Variable           m RasterT crs  dim a
+  -> Variable           m LineT   crs  dim a
+contour = Contour
 
 -- | Reproyecta una entrada.
 --
@@ -252,6 +264,7 @@ foldLeaves f = go maxDepth where
   go !_ z v@DimensionDependant{} = f z v
   go !n z (w :<|> w')            = go (n-1) z w
                                >>= flip (go (n-1)) w'
+  go !n z (Contour _ w)          = go (n-1) z w
   go !n z (Warp _ w)             = go (n-1) z w
   go !n z (Grid _ w)             = go (n-1) z w
   go !n z (Rasterize _ w)        = go (n-1) z w
@@ -312,6 +325,7 @@ getMissingInputs = go 100 [] where
       then return z
       else go (n-1) (z <> z') w ix
 
+  go !n z (Contour _ v)     ix = go (n-1) z v ix
   go !n z (Warp _ v)        ix = go (n-1) z v ix
   go !n z (Grid _ v)        ix = go (n-1) z v ix
   go !n z (Rasterize _ v)   ix = go (n-1) z v ix

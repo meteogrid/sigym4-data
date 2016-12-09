@@ -123,6 +123,14 @@ data Variable
     -> Variable m t crs dim a
     -> Variable m t crs dim a
 
+  -- | Crea isolineas a partir de un raster
+  --
+  Contour
+    :: Contourable m a
+    => ContourSettings    m                  a
+    -> Variable           m RasterT crs  dim a
+    -> Variable           m LineT   crs  dim a
+
   -- | Reproyecta una variable
   --
   --   Tambien sirve para especificar un algoritmo de resampleo entre
@@ -341,6 +349,7 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (v1 :<|> v2) = rnf v1 `seq` rnf v2
   rnf (Warp v1 v2) = rnf v1 `seq` rnf v2
   rnf (Grid v1 v2) = rnf v1 `seq` rnf v2
+  rnf (Contour v1 v2) = rnf v1 `seq` rnf v2
   rnf (Rasterize v1 v2) = rnf v1 `seq` rnf v2
   rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
@@ -443,6 +452,26 @@ data SomeDimensionIx where
 deriving instance Show SomeDimensionIx
 instance Eq SomeDimensionIx where (==) = (==) `on` show
 
+
+class ( HasFingerprint (ContourSettings m a)
+      , Default (ContourSettings m a)
+      , Show (ContourSettings m a)
+      , NFData (ContourSettings m a)
+      ) => Contourable m a where
+  type ContourSettings m a :: *
+  doContour
+    :: ContourSettings m                 a
+    -> Variable        m RasterT crs dim a
+    -> Variable        m LineT   crs dim a
+instance {-# OVERLAPPABLE #-}
+  ( TypeError ('Text "Este interprete no sabe crear contornos ")
+  , Default (ContourSettings m a)
+  , HasFingerprint (ContourSettings m a)
+  , Show (ContourSettings m a)
+  , NFData (ContourSettings m a)
+  ) => Contourable m a where
+  type ContourSettings m a = ()
+  doContour = error "unreachable"
 
 class ( HasFingerprint (WarpSettings m t a)
       , Default (WarpSettings m t a)
@@ -654,6 +683,9 @@ prettyAST = go maxDepth where
   go !_ (Const d v) = "Constant" <+> text (show v) <+> parens (text (show d))
   go !n (s1 :<|> s2) =
     nextVar (goN n s1) $+$ ":<|>" $+$ nextVar (goN n s2)
+  go !n (Contour s1 s2) =
+    withBullet "Contour" <+> text (show s1) $$
+      nextVar (goN n s2)
   go !n (Warp s1 s2) =
     withBullet "Warp" <+> text (show s1) $$
       nextVar (goN n s2)
@@ -710,6 +742,7 @@ instance HasDescription (Variable m t crs dim a) where
   description (Const _ v) = "Constant " <> fromString (show v)
   description (DimensionDependant _ _) = "Function of dimension"
   description (v :<|> w) = description v <> " or " <> description w
+  description (Contour _ v) = "Contours " <> description v
   description (Warp _ v) = "Warped " <> description v
   description (Grid _ v) = "Gridded " <> description v
   description (Rasterize _ v) = "Rasterized " <> description v
@@ -736,6 +769,7 @@ instance HasDimension (Variable m t crs dim a) dim where
   -- Creo (AVG) que es "moralmente correcto" decir que la de la opcion
   -- ideal
   dimension (v :<|> _)               = dimension v
+  dimension (Contour _ v)            = dimension v
   dimension (Warp _ v)               = dimension v
   dimension (Grid _ v)               = dimension v
   dimension (Rasterize _ v)          = dimension v
@@ -789,6 +823,7 @@ instance MonadError LoadError m
 
   -- La huella de las operaciones intrinsecas es la huella de las
   -- variables de entrada combinada con la de la de su configuracion.
+  calculateFingerprint (Contour s v)            = combineVarFPWith v s
   calculateFingerprint (Warp s v)               = combineVarFPWith v s
   calculateFingerprint (Grid s v)               = combineVarFPWith v s
   calculateFingerprint (Rasterize s v)          = combineVarFPWith v s
