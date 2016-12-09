@@ -10,6 +10,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ViewPatterns #-}
 module Sigym4.Data.Generic (
   Variable ((:<|>))
 , RasterT
@@ -52,6 +53,7 @@ module Sigym4.Data.Generic (
 , IsConst
 , const
 , foldDim
+, mapReduce
 , map
 , zipWith
 
@@ -67,6 +69,7 @@ import           Sigym4.Data.AST as AST
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 
+import           Control.Monad (foldM)
 import           Control.Monad.Except (MonadError(catchError))
 import           Data.Monoid ((<>))
 import           Prelude hiding (const, map, zipWith)
@@ -226,6 +229,31 @@ foldDim
   -> Variable m t crs dim a
 foldDim = FoldDim
 
+-- | Una reduccion sobre los indices dimensionales.
+--
+--   * (a -> b -> a) es la funcion que acumula en a los valores b de la
+--     variable que reducimos (ie: "map")
+--   * (a -> a -> a) es la funcion que agrega los resultados parciales
+--   (ie: "reduce")
+--   Es muy importante que "reduce" sea una funcion asociativa y conmutativa
+--   ya que el orden de evaluacion de "map" no esta definido.
+--
+-- Sirve para implementar medias, medianas, modas, desviaciones tipicas...
+-- Ver http://static.googleusercontent.com/media/research.google.com/es/us/archive/mapreduce-osdi04.pdf
+-- para mas informacion
+mapReduce
+  :: ( Interpretable m t a
+     , Interpretable m t b
+     , IsVariable m t crs dim a
+     , IsVariable m t crs dim b
+     )
+  => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+  -> WithFingerprint (Exp m a -> Exp m a -> Exp m a)
+  -> a
+  -> (DimensionIx dim -> [DimensionIx dim])
+  -> Variable m t crs dim b
+  -> Variable m t crs dim a
+mapReduce = MapReduce
 
 -- | Le da nombre a una 'Variable'. Unicamente sirve para consumo
 -- humano. El interprete *debe* ignorarlo (ie: no usarlo para calculo
@@ -275,6 +303,7 @@ foldLeaves f = go maxDepth where
   go !_ z v@AdaptDim{}           = f z v
   go !n z (FoldDim _ (_,w) w')   = go (n-1) z w
                                >>= flip (go (n-1)) w'
+  go !n z (MapReduce _ _ _ _ w)  = go (n-1) z w
   go !n z (Describe   _ w)       = go (n-1) z w
   go !n z (Map _ w)              = go (n-1) z w
   go !n z (ZipWith _ w w')       = go (n-1) z w
@@ -360,10 +389,26 @@ getMissingInputs = go 100 [] where
               else -- seguimos probando
                 loop xs' ix'
 
-  go !n z (FoldDim _ (ix0,v0) v) ix
-    | ix==ix0   = go (n-1) z v0 ix
-    | otherwise = go (n-1) z v ix
+  go !n z w@(FoldDim _ (ix0,v0) v) ix
+    | ix<=ix0   = go (n-1) z v0 ix
+    | otherwise = do
+        let d = dimension v
+            mqp = idpred d =<< idfloor d ix
+        z' <- go (n-1) z v ix
+        case mqp of
+          Just (unQ -> p) -> go (n-1) z' w p
+          Nothing         -> return z'
+
+  go !n z (MapReduce _ _ _ s v) ix
+    | null ixes = return (mi : z)
+    | otherwise = foldM (\z' -> go (n-1) z' v) z ixes
+    where mi = MissingInput
+               (SomeDimensionIx (dimension v) ix)
+               (description v)
+               DimAdaptError 
+          ixes = s ix
+
   go !n z (Describe   _ v)   ix    = go (n-1) z v ix
   go !n z (Map        _ v)   ix    = go (n-1) z v ix
   go !n z (ZipWith    _ v w) ix    = go (n-1) z v ix
-                                          >>= \z' -> go (n-1) z' w ix
+                                 >>= \z' -> go (n-1) z' w ix

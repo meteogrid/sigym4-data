@@ -231,6 +231,31 @@ data Variable
     -> Variable m t crs dim b
     -> Variable m t crs dim a
 
+  -- | Una reduccion sobre los indices dimensionales.
+  --
+  --   * (a -> b -> a) es la funcion que acumula en a los valores b de la
+  --     variable que reducimos (ie: "map")
+  --   * (a -> a -> a) es la funcion que agrega los resultados parciales
+  --   (ie: "reduce")
+  --   Es muy importante que "reduce" sea una funcion asociativa ya que el orden
+  --   de evaluacion de "map" no esta definido.
+  --
+  -- Sirve para implementar medias, medianas, modas, desviaciones tipicas...
+  -- Ver http://static.googleusercontent.com/media/research.google.com/es/us/archive/mapreduce-osdi04.pdf
+  -- para mas informacion
+  MapReduce
+    :: ( Interpretable m t a
+       , Interpretable m t b
+       , IsVariable m t crs dim a
+       , IsVariable m t crs dim b
+       )
+    => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+    -> WithFingerprint (Exp m a -> Exp m a -> Exp m a)
+    -> a
+    -> (DimensionIx dim -> [DimensionIx dim])
+    -> Variable m t crs dim b
+    -> Variable m t crs dim a
+
 
   -- | Aplica una funcion unaria
   Map
@@ -261,9 +286,16 @@ type IsVariable m t crs dim a  =
   ( Typeable (Variable m t crs dim a)
   , Typeable m, Typeable t, Typeable crs, Typeable dim, Typeable a
   , HasDescription (Variable m t crs dim a)
+  , Show dim
+  , Dimension dim
+  , Dependent dim ~  ()
   , Show (DimensionIx dim)
   , Eq (DimensionIx dim)
+  , Ord (DimensionIx dim)
   , NFData (DimensionIx dim)
+  , HasFingerprint (DimensionIx dim)
+  , HasFingerprint a
+  , NFData a
   )
 
 type IsInput m t crs dim a = 
@@ -354,6 +386,7 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (AdaptDim v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
+  rnf (MapReduce m r z s v) = rnf m `seq` rnf r `seq` rnf z `seq` rnf s `seq` rnf v
   rnf (FoldDim z f v) = rnf z `seq` rnf f `seq` rnf v
   rnf (Describe v1 v2) = rnf v1 `seq` rnf v2
   rnf (Map v1 v2) = rnf v1 `seq` rnf v2
@@ -704,6 +737,9 @@ prettyAST = go maxDepth where
   go !n (AdaptDim dim _ s2) =
     withBullet "AdaptDim" <+> text (show dim) $$
       nextVar (goN n s2)
+  go !n (MapReduce _ _ _ _ v) =
+    withBullet "MapReduce" $$
+      nextVar (goN n v)
   go !n (FoldDim _ (i,z) v) =
     withBullet "FoldDim" <+> text (show i) $$
       "base case: " <+> text (show i) $+$ nextVar (goN n z) $$
@@ -750,6 +786,7 @@ instance HasDescription (Variable m t crs dim a) where
   description (Aggregate _ v w) = description w <> " aggregated over " <> description v
   description (AdaptDim d _ w) = description w <> " adapted to " <> fromString (show d)
   description (FoldDim _ _ w) = "FoldDim over " <> description w
+  description (MapReduce _ _ _ _ w) = "MapReduce over " <> description w
   description (Describe v _) = v
   description (Map _ v) = "Function of " <> description v
   description (ZipWith _ v w) = "Function of " <> description v <> " and " <> description w
@@ -777,6 +814,7 @@ instance HasDimension (Variable m t crs dim a) dim where
   dimension (Aggregate _ _ v)        = dimension v
   dimension (AdaptDim d _ _)         = d
   dimension (FoldDim _ _ v)          = dimension v
+  dimension (MapReduce _ _ _ _ v)    = dimension v
   dimension (Describe _ v)           = dimension v
   dimension (Map _ v)                = dimension v
   -- En las aplicaciones de mas de una variable cogemos la dimension
@@ -844,6 +882,13 @@ instance MonadError LoadError m
 
   calculateFingerprint (FoldDim f (ix0,z) v) = \ix ->
     if ix==ix0 then calculateFingerprint z ix else combineVarFPWith v f ix
+
+  -- La huella de MapReduce es la la variable de entrada, las funciones
+  -- map/reduce el valor inicial del acumulador y la de todos los indices
+  -- dimensionales generados por el selector
+  calculateFingerprint (MapReduce m r z s v) = \ix -> do
+    x <- calculateFingerprint v ix
+    return (mconcat (x:fingerprint m:fingerprint r:fingerprint z:map fingerprint (s ix)))
 
   calculateFingerprint (Describe   _ v) = calculateFingerprint v
 
