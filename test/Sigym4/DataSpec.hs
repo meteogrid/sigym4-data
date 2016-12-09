@@ -19,6 +19,7 @@ import qualified Sigym4.Data.AST as AST
 import           Sigym4.Data.Units
 import           Sigym4.Data.Null
 
+import           Control.Applicative
 import           Control.Monad.Trans.Either
 import           Control.Newtype
 import           Data.Functor.Identity
@@ -206,9 +207,14 @@ instance AST.HasDescription (DummyRasterInput crs dim a) where
 data DummyBand crs a = DummyBand
   { dummyDescription :: Description
   }
-type instance AST.Exp DummyInterpreter = Identity
-type instance AST.RasterBand DummyInterpreter crs a = DummyBand crs a
 
+instance AST.HasExp DummyInterpreter a where
+  newtype Exp DummyInterpreter a = DummyExp (Identity a)
+    deriving (Eq, Ord, Num, Show)
+  lift = DummyExp . pure
+  lift1 f (DummyExp a) = DummyExp (fmap f a)
+  lift2 f (DummyExp a) (DummyExp b) = DummyExp (liftA2 f a b)
+  
 
 instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a where
   type BlockVectorType (DummyBand crs a) DummyInterpreter = St.Vector

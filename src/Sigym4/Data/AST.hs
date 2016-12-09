@@ -17,6 +17,7 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE QuasiQuotes #-}
 module Sigym4.Data.AST where
 
 import           Sigym4.Data.Fingerprint
@@ -297,9 +298,34 @@ type IsVariable m t crs dim a  =
   , NFData (DimensionIx dim)
   , HasFingerprint (DimensionIx dim)
   , HasFingerprint a
+  , HasExp m a
   , NFData a
   , MonadError LoadError m
   )
+
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Lift m a
+  , Num a
+  ) => Num (Variable m t crs dim a) where
+  (+) = ZipWith ([fp||](lift2 (+)))
+  (-) = ZipWith ([fp||](lift2 (-)))
+  (*) = ZipWith ([fp||](lift2 (*)))
+  negate = Map ([fp||](lift1 negate))
+  abs = Map ([fp||](lift1 abs))
+  signum = Map ([fp||](lift1 signum))
+  fromInteger = error "Variables cannot be created from numeric literals (or with fromInteger)"
+
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Lift m a
+  , Fractional a
+  ) => Fractional (Variable m t crs dim a) where
+  (/) = ZipWith ([fp||](lift2 (/)))
+  recip = Map ([fp||](lift1 recip))
+  fromRational = error "Variables cannot be created from numeric literals (or with fromRational)"
 
 type IsInput m t crs dim a = 
   ( HasLoad                   m t crs dim a
@@ -397,9 +423,14 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (ZipWith v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
 
 
-type family RasterBand    (m :: * -> *) crs a = r | r -> m crs a
-type family VectorLayer   (m :: * -> *) crs a = r | r -> m crs a
-type family Exp           (m :: * -> *)       = (r :: * -> *)
+
+class HasExp (m :: * -> *) a where
+  type Lift m a :: Constraint
+  type Lift m a = ()
+  data Exp m a :: *
+  lift :: Lift m a => a -> Exp m a
+  lift1 :: Lift m b => (a -> b) -> Exp m a -> Exp m b
+  lift2 :: Lift m c => (a -> b -> c) -> Exp m a -> Exp m b -> Exp m c
 
 type Message = String
 
