@@ -272,20 +272,20 @@ describe = Describe
 -- Es responsabilidad de la funcion de reduccion descender si puede
 foldLeaves
   :: forall m t crs dim a b.
-     ( Monad m, IsVariable m t crs dim a )
-  => (forall t' crs' a'. IsVariable m t' crs' dim a'
-        => b -> Variable m t' crs' dim a' -> m b)
+     IsVariable m t crs dim a
+  => (forall m' t' crs' a'. IsVariable m' t' crs' dim a'
+        => b -> Variable m' t' crs' dim a' -> m' b)
   -> b
   -> Variable m t crs dim a
   -> m b
 foldLeaves f = go maxDepth where
   maxDepth = 100 :: Int
 
-  go :: forall t' crs' a'.  IsVariable m t' crs' dim a'
+  go :: forall m' t' crs' a'. IsVariable m' t' crs' dim a'
      => Int
      -> b
-     -> Variable m t' crs' dim a'
-     -> m b
+     -> Variable m' t' crs' dim a'
+     -> m' b
   go !n z _               | n==0 = return z
   go !_ z v@Input{}              = f z v
   go !_ z v@Const{}              = f z v
@@ -300,6 +300,7 @@ foldLeaves f = go maxDepth where
                                >>= flip (go (n-1)) w'
   go !n z (Aggregate _ w w')     = go (n-1) z w
                                >>=  flip (go (n-1)) w'
+  go !n z (Hoist w)              = AST.hoist (go (n-1) z w)
   go !_ z v@AdaptDim{}           = f z v
   go !n z (FoldDim _ (_,w) w')   = go (n-1) z w
                                >>= flip (go (n-1)) w'
@@ -319,13 +320,13 @@ data MissingInput = MissingInput
 -- | Devuelve una lista de 'MissingInput's con las entradas que
 -- impiden que una 'Variable' se genere.
 getMissingInputs
-  :: (Monad m, IsVariable m t crs dim a)
-  => Variable m t crs dim a -> DimensionIx dim
+  :: IsVariable m t crs dim a
+  => Variable m t crs dim a
+  -> DimensionIx dim
   -> m [MissingInput]
 getMissingInputs = go 100 [] where
   go
-    :: forall m t crs dim a.
-       (Monad m, IsVariable m t crs dim a)
+    :: forall m t crs dim a.  IsVariable m t crs dim a
     => Int
     -> [MissingInput]
     -> Variable m t crs dim a
@@ -362,6 +363,7 @@ getMissingInputs = go 100 [] where
   go !n z (Sample    _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
   go !n z (Aggregate _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
 
+  go !n z (Hoist w)           ix = hoist (go (n-1) z w ix)
   go !n z ad@(AdaptDim d f v) ix =
     case f ix of
       [] -> -- Si no hay adaptacion razonable de dimensiones marcamos el

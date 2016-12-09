@@ -42,11 +42,8 @@ import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
 
 
-
--- | Indexa las 'Variable's por tipo de "geometria"
-
--- | Una variable de rejilla donde cada pixel representa el
--- valor del *area* cubierta por dicho pixel reproyectado al
+-- | Una rejilla regular de puntos donde cada uno representa el
+-- valor del *area* cubierta por el "pixel" reproyectado al
 -- terreno ("cell value" en la terminologia que usa VTK)
 data RasterT
 
@@ -207,6 +204,11 @@ data Variable
     -> Variable m t crs dim' a
     -> Variable m t crs dim  a
 
+  -- | Adapta una variable de otro interprete
+  Hoist
+    :: (IsVariable m' t crs dim a, Hoistable m m')
+    => Variable  m' t crs dim a
+    -> Variable  m  t crs dim a
 
   -- | Asigna una descripcion a una variable
   --
@@ -237,8 +239,8 @@ data Variable
   --     variable que reducimos (ie: "map")
   --   * (a -> a -> a) es la funcion que agrega los resultados parciales
   --   (ie: "reduce")
-  --   Es muy importante que "reduce" sea una funcion asociativa ya que el orden
-  --   de evaluacion de "map" no esta definido.
+  --   Es muy importante que "reduce" sea una funcion asociativa y conmutativa
+  --   ya que el orden de evaluacion de "map" no esta definido.
   --
   -- Sirve para implementar medias, medianas, modas, desviaciones tipicas...
   -- Ver http://static.googleusercontent.com/media/research.google.com/es/us/archive/mapreduce-osdi04.pdf
@@ -296,6 +298,7 @@ type IsVariable m t crs dim a  =
   , HasFingerprint (DimensionIx dim)
   , HasFingerprint a
   , NFData a
+  , MonadError LoadError m
   )
 
 type IsInput m t crs dim a = 
@@ -385,6 +388,7 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (Rasterize v1 v2) = rnf v1 `seq` rnf v2
   rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
+  rnf (Hoist w) = rnf w
   rnf (AdaptDim v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (MapReduce m r z s v) = rnf m `seq` rnf r `seq` rnf z `seq` rnf s `seq` rnf v
   rnf (FoldDim z f v) = rnf z `seq` rnf f `seq` rnf v
@@ -485,6 +489,8 @@ data SomeDimensionIx where
 deriving instance Show SomeDimensionIx
 instance Eq SomeDimensionIx where (==) = (==) `on` show
 
+
+class (Monad m, Monad m') => Hoistable m m' where hoist :: m' a -> m a
 
 class ( HasFingerprint (ContourSettings m a)
       , Default (ContourSettings m a)
@@ -629,14 +635,8 @@ type IsConst dim a =
 
 data family Loader (m :: * -> *) t crs dim a :: *
 
-class
-  ( KnownCrs crs
-  , Dimension dim
-  , Show dim
-  , Show (DimensionIx dim)
-  , MonadError LoadError m
-  ) => HasLoad m t crs dim a where
-  type Dataset m t crs     a :: *
+class IsVariable m t crs dim a => HasLoad m t crs dim a where
+  type Dataset   m t crs     a :: *
   load
     :: Loader m t crs dim a
     -> DimensionIx dim
@@ -737,6 +737,9 @@ prettyAST = go maxDepth where
   go !n (AdaptDim dim _ s2) =
     withBullet "AdaptDim" <+> text (show dim) $$
       nextVar (goN n s2)
+  go !n (Hoist w) =
+    withBullet "Hoist" $$
+      nextVar (goN n w)
   go !n (MapReduce _ _ _ _ v) =
     withBullet "MapReduce" $$
       nextVar (goN n v)
@@ -785,6 +788,7 @@ instance HasDescription (Variable m t crs dim a) where
   description (Sample _ v w) = description w <> " sampled over " <> description v
   description (Aggregate _ v w) = description w <> " aggregated over " <> description v
   description (AdaptDim d _ w) = description w <> " adapted to " <> fromString (show d)
+  description (Hoist w)        = description w <> "(hoisted)"
   description (FoldDim _ _ w) = "FoldDim over " <> description w
   description (MapReduce _ _ _ _ w) = "MapReduce over " <> description w
   description (Describe v _) = v
@@ -812,6 +816,7 @@ instance HasDimension (Variable m t crs dim a) dim where
   dimension (Rasterize _ v)          = dimension v
   dimension (Sample _ _ v)           = dimension v
   dimension (Aggregate _ _ v)        = dimension v
+  dimension (Hoist w)                = dimension w
   dimension (AdaptDim d _ _)         = d
   dimension (FoldDim _ _ v)          = dimension v
   dimension (MapReduce _ _ _ _ v)    = dimension v
@@ -843,6 +848,8 @@ instance MonadError LoadError m
   -- La de una funcion del indice dimensional es funcion de su resultado
   -- (Asumimos que se calcula muy rapido)
   calculateFingerprint (DimensionDependant f _)   = return . fingerprint . f
+
+  calculateFingerprint (Hoist a) = hoist . calculateFingerprint a
 
   -- La huella de una alternativa es la de la primera opcion si
   -- se puede cargar o si no la de la segunda.

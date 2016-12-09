@@ -10,12 +10,14 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Sigym4.DataSpec ( spec, main ) where
 
 import           Sigym4.Data hiding (describe, map, const)
 import qualified Sigym4.Data as D
 import qualified Sigym4.Data.AST as AST
 import           Sigym4.Data.Units
+import           Sigym4.Data.Null
 
 import           Control.Monad.Trans.Either
 import           Control.Newtype
@@ -33,7 +35,11 @@ main = hspec spec
 newtype Temperature = Temperature Double
   deriving
     ( Eq, Ord, Show, Num
-    , RealFrac, Real, Fractional, Floating, RealFloat, IEEE, Storable)
+    , RealFrac, Real, Fractional, Floating, RealFloat, Storable)
+
+instance HasNull Temperature where nullValue = (-9999)
+  
+
 
 instance HasUnits Temperature Identity where
   type Units Temperature = ()
@@ -184,7 +190,7 @@ data instance AST.Loader DummyInterpreter RasterT crs dim a = DummyRasterInput
 
 type DummyRasterInput = AST.Loader DummyInterpreter RasterT
 
-instance (KnownCrs crs, Dimension dim, Show dim, Show (DimensionIx dim))
+instance IsVariable DummyInterpreter RasterT crs dim a
   => AST.HasLoad DummyInterpreter RasterT crs dim a where
   type Dataset DummyInterpreter RasterT crs a = DummyBand crs a
   load = rLoad

@@ -21,8 +21,8 @@ import qualified Numeric.Units.Dimensional as DP
 
 type family UnitQuantity (u :: * -> *) a = q
 
-class ( Num (e (MachineType q))
-      , HasNull (e (MachineType q))
+class ( Num (e q)
+      , HasNull (e q)
       , Default (Units q)
       ) => HasUnits q e where
   type Units q       :: *
@@ -41,8 +41,8 @@ class ( Num (e (MachineType q))
 
 type instance UnitQuantity (DP.Unit k d) a = DP.Quantity d a
 
-instance ( Num (e a)
-         , HasNull (e a)
+instance ( Num (e (DP.Unit k u a))
+         , HasNull (e (DP.Unit k u a))
          , Default (DP.Unit k u a)
          ) => HasUnits (DP.Unit k u a) e where
   type Units (DP.Unit k u a) = DP.Unit k u a

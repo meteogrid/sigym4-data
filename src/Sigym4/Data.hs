@@ -44,6 +44,10 @@ module Sigym4.Data (
 -- *** 'grid'
 , grid
 , CanGrid
+--
+-- *** 'contour'
+, contour
+, Contourable
 
 -- *** 'rasterize'
 , rasterize
@@ -71,8 +75,12 @@ module Sigym4.Data (
 -- ** Combinadores de variables
 -- *** 'Interpretable'
 , Interpretable
+-- *** 'foldDim'
+, foldDim
 -- *** 'map'
 , map
+-- *** 'mapReduce'
+, mapReduce
 -- *** 'zipWith'
 , zipWith
 

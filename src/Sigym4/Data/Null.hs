@@ -20,8 +20,8 @@ class HasNull a where
   nullValue = minBound
 
   isNull    :: a -> Bool
-  default isNull :: (Eq a, Bounded a) => a -> Bool
-  isNull = (==minBound)
+  default isNull :: Eq a => a -> Bool
+  isNull = (==nullValue)
 
 instance HasNull a => HasNull (Identity a) where
   nullValue = pure nullValue
