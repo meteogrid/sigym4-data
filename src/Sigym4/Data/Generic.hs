@@ -61,7 +61,6 @@ module Sigym4.Data.Generic (
 , prettyAST
 , dimension
 , calculateFingerprint
-, foldLeaves
 
 ) where
 
@@ -263,52 +262,6 @@ describe
   -> Variable m t crs dim a
   -> Variable m t crs dim a
 describe = Describe
-
--- | Recorre todas las hojas del AST de la misma dimension en
--- pre-orden.
---
--- No desciende en los nodos AdaptDim porque al no existir
--- adaptacion automatica de dimensiones no sabria por donde bajar.
--- Es responsabilidad de la funcion de reduccion descender si puede
-foldLeaves
-  :: forall m t crs dim a b.
-     IsVariable m t crs dim a
-  => (forall m' t' crs' a'. IsVariable m' t' crs' dim a'
-        => b -> Variable m' t' crs' dim a' -> m' b)
-  -> b
-  -> Variable m t crs dim a
-  -> m b
-foldLeaves f = go maxDepth where
-  maxDepth = 100 :: Int
-
-  go :: forall m' t' crs' a'. IsVariable m' t' crs' dim a'
-     => Int
-     -> b
-     -> Variable m' t' crs' dim a'
-     -> m' b
-  go !n z _               | n==0 = return z
-  go !_ z v@Input{}              = f z v
-  go !_ z v@Const{}              = f z v
-  go !_ z v@DimensionDependant{} = f z v
-  go !n z (w :<|> w')            = go (n-1) z w
-                               >>= flip (go (n-1)) w'
-  go !n z (Contour _ w)          = go (n-1) z w
-  go !n z (Warp _ w)             = go (n-1) z w
-  go !n z (Grid _ w)             = go (n-1) z w
-  go !n z (Rasterize _ w)        = go (n-1) z w
-  go !n z (Sample _ w w')        = go (n-1) z w
-                               >>= flip (go (n-1)) w'
-  go !n z (Aggregate _ w w')     = go (n-1) z w
-                               >>=  flip (go (n-1)) w'
-  go !n z (Hoist w)              = AST.hoist (go (n-1) z w)
-  go !_ z v@AdaptDim{}           = f z v
-  go !n z (FoldDim _ (_,w) w')   = go (n-1) z w
-                               >>= flip (go (n-1)) w'
-  go !n z (MapReduce _ _ _ _ w)  = go (n-1) z w
-  go !n z (Describe   _ w)       = go (n-1) z w
-  go !n z (Map _ w)              = go (n-1) z w
-  go !n z (ZipWith _ w w')       = go (n-1) z w
-                               >>= flip (go (n-1)) w'
 
 -- | Una entrada que falta con informacion asociada
 data MissingInput = MissingInput
