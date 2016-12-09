@@ -21,13 +21,12 @@ module Sigym4.Data.AST where
 
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
-import           Sigym4.Geometry (Size, Extent, GeoReference, V2)
-import           Sigym4.Geometry.Algorithms (HasExtent)
+import           Sigym4.Geometry (Size, GeoReference, V2)
 import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
-import           Control.Monad.Except (MonadError)
+import           Control.Monad.Except (MonadError(catchError, throwError))
 import           Data.Default
 import           Data.Function ( on )
 import           Data.Monoid ( (<>) )
@@ -46,25 +45,20 @@ import           Text.Printf (printf)
 
 -- | Indexa las 'Variable's por tipo de "geometria"
 
-data VariableType
-  = PointT
-  | LineT
-  | AreaT
-  | RasterT
-
 -- | Una variable de rejilla donde cada pixel representa el
 -- valor del *area* cubierta por dicho pixel reproyectado al
 -- terreno ("cell value" en la terminologia que usa VTK)
-type RasterT = 'RasterT
+data RasterT
 
 -- | Una variable asociada a puntos (0D)
-type PointT = 'PointT
+data PointT
 
 -- | Una variable asociada a lineas (1D)
-type LineT = 'LineT
+data LineT
 
 -- | Una variable asociada a areas (2D)
-type AreaT = 'AreaT
+data AreaT
+
 
 
 -- | Una 'Variable' (Store en terminologia Sigym3).
@@ -83,7 +77,7 @@ data Variable
   -- 'm' es el interprete
   (m :: * -> *)
   -- 't' es la geometria de la variable
-  (t :: VariableType)
+  t
   -- 'crs' es el sistema de referencia de coordenadas.
   crs
   -- 'dim' es la dimension que indexa los productos de las variables.
@@ -97,69 +91,21 @@ data Variable
   a
   where
 
-  --
-  -- Operaciones de carga de datos
-  --
-  -- Introducen variables en AST a partir de datos de entrada que no
-  -- sabemos generar (o se generan por procesos externos)
-  --
+  -- | Una variable externa que no sabemos generar pero si cargar
+  -- desde alguna parte
+  Input
+    :: IsInput m t crs dim a
+    => Loader m t crs dim a
+    -> Variable m t crs dim a
   
-  -- | Una variable de entrada raster
-  RasterInput
-    :: IsRasterInput m crs dim a
-    => { rLoad        :: DimensionIx dim
-                      -> m (RasterBand m crs a)
-       , rFingerprint :: DimensionIx dim
-                      -> m Fingerprint
-       , rDimension   :: dim
-       , rDescription :: Description
-       }
-    -> Variable m RasterT crs dim a
-
-
-  -- | Una variable de entrada de puntos
-  PointInput
-    :: IsVectorInput m crs dim a
-    => { pLoad        :: DimensionIx dim
-                      -> m (VectorLayer m crs a)
-       , pFingerprint :: DimensionIx dim
-                      -> m Fingerprint
-       , pDimension   :: dim
-       , pDescription :: Description
-       }
-    -> Variable m PointT crs dim a
-
-  -- | Una variable de entrada de lineas
-  LineInput 
-    :: IsVectorInput m crs dim a
-    => { lLoad        :: DimensionIx dim
-                      -> m (VectorLayer m crs a)
-       , lFingerprint :: DimensionIx dim
-                      -> m Fingerprint
-       , lDimension   :: dim
-       , lDescription :: Description
-       }
-    -> Variable m LineT crs dim a
-
-  -- | Una variable de entrada de areas
-  AreaInput 
-    :: IsVectorInput m crs dim a
-    => { aLoad        :: DimensionIx dim
-                      -> m (VectorLayer m crs a)
-       , aFingerprint :: DimensionIx dim
-                      -> m Fingerprint
-       , aDimension   :: dim
-       , aDescription :: Description
-       }
-    -> Variable m AreaT crs dim a
-
-
-  -- | Una variable constante
+  -- | Una variable constante en el espacio independiente del indice
+  -- dimensional
   Const
     :: IsConst dim a
     => dim -> a -> Variable m t crs dim a
 
-  -- | Una variable que solo depende de la dimension
+  -- | Una variable constante en el espacio dependiente del indice
+  -- dimensional
   DimensionDependant
     :: ( HasFingerprint a
        , Dimension dim
@@ -177,7 +123,7 @@ data Variable
     -> Variable m t crs dim a
     -> Variable m t crs dim a
 
-  -- | Reproyecta una entrada.
+  -- | Reproyecta una variable
   --
   --   Tambien sirve para especificar un algoritmo de resampleo entre
   --   rasters del mismo sistema de referencia si no se quiere que se
@@ -309,8 +255,17 @@ type IsVariable m t crs dim a  =
   , HasDescription (Variable m t crs dim a)
   )
 
+type IsInput m t crs dim a = 
+  ( HasLoad                   m t crs dim a
+  , HasCalculateFingerprint   m dim (Loader m t crs dim a)
+  , HasDimension              (Loader m t crs dim a) dim
+  , HasDescription            (Loader m t crs dim a)
+  , NFData                    (Loader m t crs dim a)
+  , Show                      dim
+  )
+
 -- | Restriccion que impone el interpete para que una variable sea interpretable
-type family Interpretable (m :: * -> *) (t :: VariableType) (a :: *)  :: Constraint
+type family Interpretable (m :: * -> *) (t :: *) (a :: *) :: Constraint
 
 -- | Restriccion que deben satisfacer las 'Variable's que podemos
 --   adaptar sus indices dimensionales
@@ -377,22 +332,7 @@ deriving instance Typeable (Variable m t crs dim a)
 instance NFData dim => NFData (Variable m t crs dim a)
   where
 
-  rnf RasterInput {rLoad,rFingerprint,rDimension,rDescription} =
-    rnf rLoad `seq` rnf rFingerprint
-              `seq` rnf rDimension
-              `seq` rnf rDescription
-  rnf PointInput {pLoad,pFingerprint,pDimension,pDescription} =
-    rnf pLoad `seq` rnf pFingerprint
-              `seq` rnf pDimension
-              `seq` rnf pDescription
-  rnf LineInput {lLoad,lFingerprint,lDimension,lDescription} =
-    rnf lLoad `seq` rnf lFingerprint
-              `seq` rnf lDimension
-              `seq` rnf lDescription
-  rnf AreaInput {aLoad,aFingerprint,aDimension,aDescription} =
-    rnf aLoad `seq` rnf aFingerprint
-              `seq` rnf aDimension
-              `seq` rnf aDescription
+  rnf (Input i) = rnf i
   rnf (Const d v) = rnf d `seq` rnf v
   rnf (DimensionDependant v1 v2) = rnf v1 `seq` rnf v2
   rnf (v1 :<|> v2) = rnf v1 `seq` rnf v2
@@ -613,14 +553,6 @@ instance {-# OVERLAPPABLE #-}
   type AggregateSettings m t a = ()
   doAggregate = error "unreachable"
 
-type IsRasterInput m crs dim a =
-  ( KnownCrs crs
-  , Dimension dim
-  , Show dim
-  , Show (DimensionIx dim)
-  , IsRasterBand (RasterBand m crs a) m crs a
-  , MonadError LoadError m
-  )
 
 type IsConst dim a =
   ( NFData a
@@ -630,29 +562,36 @@ type IsConst dim a =
   , Show dim
   )
 
-type IsVectorInput m crs dim a =
+data family Loader (m :: * -> *) t crs dim a :: *
+
+class
   ( KnownCrs crs
   , Dimension dim
   , Show dim
   , Show (DimensionIx dim)
-  , IsVectorLayer (VectorLayer m crs a) m crs a
   , MonadError LoadError m
-  )
+  ) => HasLoad m t crs dim a where
+  type Dataset m t crs     a :: *
+  load
+    :: Loader m t crs dim a
+    -> DimensionIx dim
+    -> m (Dataset m t crs a)
 
-type IsRasterBand   b m crs a =
-  ( HasBlockSize    b m
-  , HasNodataValue  b m     a
-  , HasCrs          b m
-  , HasRasterSize   b m
-  , HasGeoReference b m crs
-  , HasReadBlock    b m     a
-  )
+class MonadError LoadError m
+  => HasCalculateFingerprint m dim a | a -> m, a -> dim where
+  -- | Calcula la 'Fingerprint' de un valor de tipo 'a', para un
+  -- @'DimensionIx' dim@ en un interperprete 'm'
+  --
+  --   Se debe garantizar que si la huella de 'a' no ha cambiado su
+  --  "contenido" tampoco.
+  --
+  --   El interprete *debe* calcular esto eficientemente para las
+  --   entradas, cacheando agresivamente si puede ya que esto se
+  --   hace muy a menudo.
+  calculateFingerprint :: a -> DimensionIx dim -> m Fingerprint
 
-type IsVectorLayer l m crs a =
-  ( HasCrs          l m
-  , HasExtent       l   (Extent V2 crs)
-  ) -- TBD
-
+class HasDimension o dim | o->dim where
+  dimension :: o -> dim
 
 class HasBlockSize b m | b -> m where
   blockSize   :: b -> m (Size V2)
@@ -704,18 +643,9 @@ prettyAST = go maxDepth where
           => Int -> Variable m t crs dim a -> Doc
   goN !n = go (n-1)
   go !n _ | n==0 = nest 2 "..."
-  go !_ RasterInput{rDescription,rDimension} = withBullet
-    "RasterInput" <+> doubleQuotes (text (T.unpack rDescription))
-                  <+> parens (text (show rDimension))
-  go !_ PointInput{pDescription,pDimension} = withBullet
-    "PointInput" <+> doubleQuotes (text (T.unpack pDescription))
-                 <+> parens (text (show pDimension))
-  go !_ LineInput{lDescription,lDimension} = withBullet
-    "PointInput" <+> doubleQuotes (text (T.unpack lDescription))
-                 <+> parens (text (show lDimension))
-  go !_ AreaInput{aDescription,aDimension} = withBullet
-    "AreaInput" <+> doubleQuotes (text (T.unpack aDescription))
-                <+> parens (text (show aDimension))
+  go !_ (Input l) = withBullet
+    "Input  " <+> doubleQuotes (text (T.unpack (description l)))
+                  <+> parens (text (show (dimension l)))
   go !_ (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
   go !_ (Const d v) = "Constant" <+> text (show v) <+> parens (text (show d))
@@ -759,7 +689,8 @@ prettyAST = go maxDepth where
     :: forall m t crs dim a. IsVariable m t crs dim a
     => Variable m t crs dim a -> Doc
   prettyVarType _ =
-    text $ printf ":: %s (%s, %s)"
+    text $ printf ":: %s %s (%s, %s)"
+      (show (typeOf (undefined :: t)))
       (show (typeOf (undefined :: a)))
       (show (typeOf (undefined :: crs)))
       (show (typeOf (undefined :: dim)))
@@ -771,10 +702,7 @@ instance IsVariable m t crs dim a => Show (Variable m t crs dim a)
   where show = show . prettyAST
 
 instance HasDescription (Variable m t crs dim a) where
-  description RasterInput {rDescription} = rDescription
-  description PointInput {pDescription} = pDescription
-  description LineInput {lDescription} = lDescription
-  description AreaInput {aDescription} = aDescription
+  description (Input l) = description l
   description (Const _ v) = "Constant " <> fromString (show v)
   description (DimensionDependant _ _) = "Function of dimension"
   description (v :<|> w) = description v <> " or " <> description w
@@ -788,3 +716,119 @@ instance HasDescription (Variable m t crs dim a) where
   description (Describe v _) = v
   description (Map _ v) = "Function of " <> description v
   description (ZipWith _ v w) = "Function of " <> description v <> " and " <> description w
+
+instance HasDimension (Variable m t crs dim a) dim where
+  dimension (Input l)                 = dimension l
+  -- Para poder escribir la siguiente ecuacion es el unico motivo por el
+  -- cual 'Const' lleva dimension asociada. Pero tiene sentido ya que 'Const'
+  -- solo implica que es constante en el espacio, no en el eje dimensional que
+  -- corresponda
+  dimension (Const d _)              = d
+  dimension (DimensionDependant _ d) = d
+  -- Esto es dudoso... cual es la dimension de una alternativa?
+  -- Ahora mismo no podemos decir "la de la que se seleccione" porque
+  -- esto es una funcion pura que no depende de si se puede generar o
+  -- no.
+  -- Creo (AVG) que es "moralmente correcto" decir que la de la opcion
+  -- ideal
+  dimension (v :<|> _)               = dimension v
+  dimension (Warp _ v)               = dimension v
+  dimension (Grid _ v)               = dimension v
+  dimension (Rasterize _ v)          = dimension v
+  dimension (Sample _ _ v)           = dimension v
+  dimension (Aggregate _ _ v)        = dimension v
+  dimension (AdaptDim d _ _)         = d
+  dimension (CheckPoint _ v)         = dimension v
+  dimension (Describe _ v)           = dimension v
+  dimension (Map _ v)                = dimension v
+  -- En las aplicaciones de mas de una variable cogemos la dimension
+  -- de la primera variable siempre. Si se necesita mas control se
+  -- puede envolver con adaptDim
+  dimension (ZipWith _ v _)          = dimension v
+
+
+
+instance MonadError LoadError m
+  => HasCalculateFingerprint m dim (Variable m t crs dim a) where
+  -- La huella de las variables derivadas siempre se puede
+  -- calcular sin calcular las variables en si
+  -- por lo que es muy barato saber si hay que regenerar algo.
+  -- Ya sea por cambio en las entradas (eg: llegan nuevas
+  -- observaciones de estacion, llega fichero corregido tras envio
+  -- de fichero corrupto, etc) o por cambios en el codigo
+  -- (asumiendo que el 'Fingerprint' de las funciones envueltas con 
+  -- 'WithFingerprint' se genere correctamente).
+  calculateFingerprint (Input l)  = calculateFingerprint l
+
+  -- La de una constante es la de su valor. La dimension no nos importa.
+  -- (Asumimos que se calcula muy rapido)
+  calculateFingerprint (Const _ v) =  const . return $ fingerprint v
+
+  -- La de una funcion del indice dimensional es funcion de su resultado
+  -- (Asumimos que se calcula muy rapido)
+  calculateFingerprint (DimensionDependant f _)   = return . fingerprint . f
+
+  -- La huella de una alternativa es la de la primera opcion si
+  -- se puede cargar o si no la de la segunda.
+  --
+  -- OJO: Asume:
+  --   * Que el interprete realmente usara la primera entrada
+  --     si da resultado en vez de la segunda.
+  --
+  --   * Que una ejecucion del interprete produce entrada para
+  --   la variable o no y esto no cambia dentro de la misma ejecucion
+  --
+  --  Es decir, que "se porta bien".
+  --
+  calculateFingerprint (v :<|> w) = \ix ->
+    calculateFingerprint v ix `catchError` (\_ -> calculateFingerprint w ix)
+
+  -- La huella de las operaciones intrinsecas es la huella de las
+  -- variables de entrada combinada con la de la de su configuracion.
+  calculateFingerprint (Warp s v)               = combineVarFPWith v s
+  calculateFingerprint (Grid s v)               = combineVarFPWith v s
+  calculateFingerprint (Rasterize s v)          = combineVarFPWith v s
+  calculateFingerprint (Sample s v w)           = combineVarsFPWith v w s
+  calculateFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
+  --
+  -- La huella de una adaptacion de dimension es la huella del
+  -- primer indice adaptado que devuelva huella
+  --
+  -- OJO: Asume que el interprete realmente ejecuta la primera opcion
+  --      valida, es decir, que "se porta bien".
+  --
+  calculateFingerprint (AdaptDim _ fun v) = \ix ->
+    let loop (x:xs) = calculateFingerprint v x `catchError` const (loop xs)
+        loop []     = throwError DimAdaptError
+
+    in loop (fun ix)
+
+  calculateFingerprint (CheckPoint _ v) = calculateFingerprint v
+  calculateFingerprint (Describe   _ v) = calculateFingerprint v
+
+  -- La huella de la aplicaciones es la huella de la funcion combinada
+  -- con la de sus entradas.
+  calculateFingerprint (Map f v)  = combineVarFPWith v f
+  calculateFingerprint (ZipWith f v w) = combineVarsFPWith v w f
+
+combineVarFPWith
+  :: (HasFingerprint o, MonadError LoadError m)
+  => Variable m t crs dim a
+  -> o
+  -> DimensionIx dim
+  -> m Fingerprint
+combineVarFPWith v o ix = do
+  fv <- calculateFingerprint v ix
+  return (fv <> fingerprint o)
+
+combineVarsFPWith
+  :: (HasFingerprint o, MonadError LoadError m)
+  => Variable m t crs dim a
+  -> Variable m t' crs' dim a'
+  -> o
+  -> DimensionIx dim
+  -> m Fingerprint
+combineVarsFPWith v w o ix = do
+  fv <- calculateFingerprint v ix
+  fw <- combineVarFPWith w o ix
+  return (mconcat [fingerprint o, fv, fw])

@@ -130,9 +130,10 @@ spec = do
 
 
     it "marks failed adaptation as missing input" $ do
-      let tPredGood = tPred {
-            AST.rLoad = return . const undefined
-          }
+      let tPredGood = dummyRasterInput "temperatura inventada"
+                (const (return undefined))
+                (const (throwError NotAvailable))
+                ([0,60..24*60] :* Schedule [cron|0 0 * * *|])
           tObsBad = adaptDim (dimension tPred) badAdaptor tObs
             where badAdaptor = const []
           tPredBad = D.describe "predErr" $
@@ -161,17 +162,40 @@ type DummyVar = Variable DummyInterpreter
 type DummyRasterVar = Variable DummyInterpreter RasterT
 
 dummyRasterInput
-  :: AST.IsRasterInput DummyInterpreter crs dim a
+  :: IsInput DummyInterpreter RasterT crs dim a
   => Description
   -> (DimensionIx dim -> DummyInterpreter (DummyBand crs a))
   -> (DimensionIx dim -> DummyInterpreter Fingerprint)
   -> dim -> DummyRasterVar crs dim a
-dummyRasterInput desc res f d = AST.RasterInput
-  { AST.rLoad        = res
-  , AST.rFingerprint = f
-  , AST.rDimension   = d
-  , AST.rDescription = desc
+dummyRasterInput desc res f d = input $ DummyRasterInput
+  { rLoad        = res
+  , rFingerprint = f
+  , rDimension   = d
+  , rDescription = desc
   }
+
+
+data instance AST.Loader DummyInterpreter RasterT crs dim a = DummyRasterInput
+  { rLoad :: DimensionIx dim -> DummyInterpreter (DummyBand crs a)
+  , rFingerprint :: DimensionIx dim -> DummyInterpreter Fingerprint
+  , rDimension   :: dim
+  , rDescription :: Description
+  }
+
+type DummyRasterInput = AST.Loader DummyInterpreter RasterT
+
+instance (KnownCrs crs, Dimension dim, Show dim, Show (DimensionIx dim))
+  => AST.HasLoad DummyInterpreter RasterT crs dim a where
+  type Dataset DummyInterpreter RasterT crs a = DummyBand crs a
+  load = rLoad
+
+instance AST.HasCalculateFingerprint DummyInterpreter dim (DummyRasterInput crs dim a) where
+  calculateFingerprint = rFingerprint
+
+instance HasDimension (DummyRasterInput crs dim a) dim where dimension = rDimension
+
+instance AST.HasDescription (DummyRasterInput crs dim a) where
+  description = rDescription
 
 data DummyBand crs a = DummyBand
   { dummyDescription :: Description

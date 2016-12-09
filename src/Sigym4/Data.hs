@@ -1,11 +1,12 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 module Sigym4.Data (
+-- * Typeclasses principales
+  HasCalculateFingerprint (..)
+, HasDimension (..)
 -- * Tipos principales
-  Variable ((:<|>))
-
--- ** Los distintos tipos de geometria de una variable
-, VariableType
+, Variable ((:<|>))
+-- ** Distintos tipos de geometria de una variable
 , RasterT
 , AreaT
 , LineT
@@ -13,11 +14,6 @@ module Sigym4.Data (
 
 -- ** Restricciones que deben satisfacer todas las 'Variable's
 , IsVariable
-
--- ** Restricciones que deben satisfacer todas las 'Variable's de
--- entrada
-, IsRasterInput
-, IsVectorInput
 
 -- * Constructores de 'Variable's
 
@@ -61,8 +57,13 @@ module Sigym4.Data (
 , aggregate
 , CanAggregate
 
+-- ** 'Variable's de entradda
+-- *** 'input'
+, IsInput
+, input
 -- ** 'Variable's puras
 -- *** 'const'
+, IsConst
 , const
 -- *** 'ofDimension'
 , ofDimension
@@ -96,9 +97,7 @@ module Sigym4.Data (
 
 -- * Utilidades varias
 , getMissingInputs
-, getFingerprint
 , prettyAST
-, dimension
 
 -- * Tipos re-exportados
 , Storable

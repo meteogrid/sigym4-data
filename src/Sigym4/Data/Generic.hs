@@ -12,15 +12,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 module Sigym4.Data.Generic (
   Variable ((:<|>))
-, VariableType
 , RasterT
 , AreaT
 , LineT
 , PointT
 
 , IsVariable
-, IsRasterInput
-, IsVectorInput
+, HasLoad (..)
 
 , MissingInput (..)
 
@@ -47,6 +45,9 @@ module Sigym4.Data.Generic (
 
 , Interpretable
 , ofDimension
+, IsInput
+, input
+, IsConst
 , const
 , map
 , zipWith
@@ -54,7 +55,7 @@ module Sigym4.Data.Generic (
 , getMissingInputs
 , prettyAST
 , dimension
-, getFingerprint
+, calculateFingerprint
 , foldLeaves
 
 ) where
@@ -63,10 +64,9 @@ import           Sigym4.Data.AST as AST
 import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 
-import           Control.Monad.Except (MonadError(catchError, throwError))
+import           Control.Monad.Except (MonadError(catchError))
 import           Data.Monoid ((<>))
 import           Prelude hiding (const, map, zipWith)
-import qualified Prelude as P
 
           
 
@@ -161,6 +161,13 @@ aggregate
   -> Variable          m AreaT   crs  dim a
 aggregate = Aggregate
 
+-- | Una 'Variable' de entrada
+input
+  :: IsInput m t crs dim a
+  => Loader m t crs dim a
+  -> Variable m t crs dim a
+input = Input
+
 -- | Una 'Variable' constante
 const :: IsConst dim a => dim -> a -> Variable m t crs dim a
 const = Const
@@ -218,141 +225,6 @@ describe
 describe = Describe
 
 
--- | Devuelve la 'Dimension' de una 'Variable'
-dimension :: Variable m t crs dim a -> dim
-dimension RasterInput{rDimension}  = rDimension
-dimension PointInput{pDimension}   = pDimension
-dimension LineInput{lDimension}    = lDimension
-dimension AreaInput{aDimension}    = aDimension
--- Para poder escribir la siguiente ecuacion es el unico motivo por el
--- cual Const lleva dimension asociada.
-dimension (Const d _)              = d
-dimension (DimensionDependant _ d) = d
--- Esto es dudoso... cual es la dimension de una alternativa?
--- Ahora mismo no podemos decir "la de la que se seleccione" porque
--- esto es una funcion pura que no depende de si se puede generar o
--- no.
--- Creo (AVG) que es "moralmente correcto" decir que la de la opcion
--- ideal
-dimension (v :<|> _)               = dimension v
-dimension (Warp _ v)               = dimension v
-dimension (Grid _ v)               = dimension v
-dimension (Rasterize _ v)          = dimension v
-dimension (Sample _ _ v)           = dimension v
-dimension (Aggregate _ _ v)        = dimension v
-dimension (AdaptDim d _ _)         = d
-dimension (CheckPoint _ v)         = dimension v
-dimension (Describe _ v)           = dimension v
-dimension (Map _ v)                = dimension v
--- En las aplicaciones de mas de una variable cogemos la dimension
--- de la primera variable siempre. Si se necesita mas control se
--- puede envolver con adaptDim
-dimension (ZipWith _ v _)          = dimension v
-
-
-
--- | Calcula la huella ('Fingerprint') de una variable.
---
---   Se garantiza que si la huella de una variable no ha cambiado
---   el contenido tampoco.
---
---   El interprete *debe* calcular esto eficientemente para las
---   entradas, cacheando agresivamente si puede ya que esto se
---   hace muy a menudo.
---
---   La huella de las variables derivadas siempre se puede
---   calcular sin calcular las variables en si
---   por lo que es muy barato saber si hay que regenerar algo.
---   Ya sea por cambio en las entradas (eg: llegan nuevas
---   observaciones de estacion, llega fichero corregido tras envio
---   de fichero corrupto, etc) o por cambios en el codigo
---   (asumiendo que el 'Fingerprint' de las funciones envueltas con 
---   'WithFingerprint' se genere correctamente).
-getFingerprint
-  :: MonadError LoadError m
-  => Variable m t crs dim a
-  -> DimensionIx dim
-  -> m Fingerprint
-
--- La huella de las entradas es la calculada por el cargador
-getFingerprint RasterInput{rFingerprint}  = rFingerprint
-getFingerprint PointInput{pFingerprint}   = pFingerprint
-getFingerprint LineInput{lFingerprint}    = lFingerprint
-getFingerprint AreaInput{aFingerprint}    = aFingerprint
-
--- La de una constante es la de su valor. La dimension no nos importa.
--- (Asumimos que se calcula muy rapido)
-getFingerprint (Const _ v) =  P.const . return $ fingerprint v
-
--- La de una funcion del indice dimensional es funcion de su resultado
--- (Asumimos que se calcula muy rapido)
-getFingerprint (DimensionDependant f _)   = return . fingerprint . f
-
--- La huella de una alternativa es la de la primera opcion si
--- se puede cargar o si no la de la segunda.
---
--- OJO: Asume:
---   * Que el interprete realmente usara la primera entrada
---     si da resultado en vez de la segunda.
---
---   * Que una ejecucion del interprete produce entrada para
---   la variable o no y esto no cambia dentro de la misma ejecucion
---
---  Es decir, que "se porta bien".
---
-getFingerprint (v :<|> w) = \ix ->
-  getFingerprint v ix `catchError` (\_ -> getFingerprint w ix)
-
--- La huella de las operaciones intrinsecas es la huella de las
--- variables de entrada combinada con la de la de su configuracion.
-getFingerprint (Warp s v)               = combineVarFPWith v s
-getFingerprint (Grid s v)               = combineVarFPWith v s
-getFingerprint (Rasterize s v)          = combineVarFPWith v s
-getFingerprint (Sample s v w)           = combineVarsFPWith v w s
-getFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
---
--- La huella de una adaptacion de dimension es la huella del
--- primer indice adaptado que devuelva huella
---
--- OJO: Asume que el interprete realmente ejecuta la primera opcion
---      valida, es decir, que "se porta bien".
---
-getFingerprint (AdaptDim _ fun v) = \ix ->
-  let loop (x:xs) = getFingerprint v x `catchError` P.const (loop xs)
-      loop []     = throwError DimAdaptError
-
-  in loop (fun ix)
-
-getFingerprint (CheckPoint _ v) = getFingerprint v
-getFingerprint (Describe   _ v) = getFingerprint v
-
--- La huella de la aplicaciones es la huella de la funcion combinada
--- con la de sus entradas.
-getFingerprint (Map f v)  = combineVarFPWith v f
-getFingerprint (ZipWith f v w) = combineVarsFPWith v w f
-
-combineVarFPWith
-  :: (HasFingerprint o, MonadError LoadError m)
-  => Variable m t crs dim a
-  -> o
-  -> DimensionIx dim
-  -> m Fingerprint
-combineVarFPWith v o ix = do
-  fv <- getFingerprint v ix
-  return (fv <> fingerprint o)
-
-combineVarsFPWith
-  :: (HasFingerprint o, MonadError LoadError m)
-  => Variable m t crs dim a
-  -> Variable m t' crs' dim a'
-  -> o
-  -> DimensionIx dim
-  -> m Fingerprint
-combineVarsFPWith v w o ix = do
-  fv <- getFingerprint v ix
-  fw <- combineVarFPWith w o ix
-  return (mconcat [fingerprint o, fv, fw])
-
 -- | Recorre todas las hojas del AST de la misma dimension en
 -- pre-orden.
 --
@@ -376,10 +248,7 @@ foldLeaves f = go maxDepth where
      -> Variable m t' crs' dim a'
      -> m b
   go !n z _               | n==0 = return z
-  go !_ z v@RasterInput{}        = f z v
-  go !_ z v@PointInput{}         = f z v
-  go !_ z v@LineInput{}          = f z v
-  go !_ z v@AreaInput{}          = f z v
+  go !_ z v@Input{}              = f z v
   go !_ z v@Const{}              = f z v
   go !_ z v@DimensionDependant{} = f z v
   go !n z (w :<|> w')            = go (n-1) z w
@@ -421,32 +290,11 @@ getMissingInputs = go 100 [] where
     -> DimensionIx dim
     -> m [MissingInput]
   go !n z  _  _ | n<=0 = return z
-  go !_ z RasterInput{rLoad,rDescription,rDimension} ix =
-    (rLoad ix >> return z)  `catchError` \e ->
+  go !_ z (Input l) ix =
+    (load l ix >> return z) `catchError` \e ->
       let mi = MissingInput
-               (SomeDimensionIx rDimension ix)
-               rDescription e
-      in return (mi : z)
-    
-  go !_ z PointInput{pLoad,pDescription,pDimension} ix =
-    (pLoad ix >> return z)  `catchError` \e ->
-      let mi = MissingInput
-               (SomeDimensionIx pDimension ix)
-               pDescription e
-      in return (mi : z)
-
-  go !_ z LineInput{lLoad,lDescription,lDimension} ix =
-    (lLoad ix >> return z)  `catchError` \e ->
-      let mi = MissingInput
-               (SomeDimensionIx lDimension ix)
-               lDescription e
-      in return (mi : z)
-
-  go !_ z AreaInput{aLoad,aDescription,aDimension} ix =
-    (aLoad ix >> return z)  `catchError` \e ->
-      let mi = MissingInput
-               (SomeDimensionIx aDimension ix)
-               aDescription e
+               (SomeDimensionIx (dimension l) ix)
+               (description l) e
       in return (mi : z)
 
   -- Que bien, estas nunca faltan
