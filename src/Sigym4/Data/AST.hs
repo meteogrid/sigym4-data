@@ -721,9 +721,6 @@ class HasBlockSize b m | b -> m where
 class HasNodataValue b m a | b -> m, b -> a where
   nodataValue :: b -> m (Maybe a) 
 
-class HasCrs b m | b -> m where
-  getCrs :: b -> m Crs
-
 class HasRasterSize b m | b -> m where
   rasterSize :: b -> m (Size V2)
 
