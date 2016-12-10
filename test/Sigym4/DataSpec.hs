@@ -230,8 +230,6 @@ instance AST.HasGeoReference (DummyBand crs a) DummyInterpreter crs where
   geoReference = return . const gr where
     gr = either (error "unreachable") id
        $ mkGeoReference (Extent 0 100) (Size 10)
-instance AST.HasCrs (DummyBand crs a) DummyInterpreter where
-  getCrs = return . const (fromMaybe (error "unreachable") (epsgCrs 4326))
 
 instance AST.HasDescription (DummyBand crs a) where
   description = dummyDescription
