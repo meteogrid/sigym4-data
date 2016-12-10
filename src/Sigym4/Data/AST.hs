@@ -205,12 +205,6 @@ data Variable
     -> Variable m t crs dim' a
     -> Variable m t crs dim  a
 
-  -- | Adapta una variable de otro interprete
-  Hoist
-    :: (IsVariable m' t crs dim a, Hoistable m m')
-    => Variable  m' t crs dim a
-    -> Variable  m  t crs dim a
-
   -- | Asigna una descripcion a una variable
   --
   Describe ::
@@ -307,6 +301,7 @@ instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
   , Lift m a
+  , Unlift m a
   , Num a
   ) => Num (Variable m t crs dim a) where
   (+) = ZipWith ([fp||](lift2 (+)))
@@ -321,6 +316,7 @@ instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
   , Lift m a
+  , Unlift m a
   , Fractional a
   ) => Fractional (Variable m t crs dim a) where
   (/) = ZipWith ([fp||](lift2 (/)))
@@ -414,7 +410,6 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (Rasterize v1 v2) = rnf v1 `seq` rnf v2
   rnf (Sample v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (Aggregate v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
-  rnf (Hoist w) = rnf w
   rnf (AdaptDim v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
   rnf (MapReduce m r z s v) = rnf m `seq` rnf r `seq` rnf z `seq` rnf s `seq` rnf v
   rnf (FoldDim z f v) = rnf z `seq` rnf f `seq` rnf v
@@ -427,10 +422,30 @@ instance NFData dim => NFData (Variable m t crs dim a)
 class HasExp (m :: * -> *) a where
   type Lift m a :: Constraint
   type Lift m a = ()
+  type Unlift m a :: Constraint
+  type Unlift m a = ()
   data Exp m a :: *
   lift :: Lift m a => a -> Exp m a
-  lift1 :: Lift m b => (a -> b) -> Exp m a -> Exp m b
-  lift2 :: Lift m c => (a -> b -> c) -> Exp m a -> Exp m b -> Exp m c
+  unlift :: Unlift m a => Exp m a -> a
+
+--
+--
+-- |Lift a unary function into 'Exp'.
+--
+lift1 :: (HasExp m a, HasExp m b, Lift m b, Unlift m a)
+      => (a -> b)
+      -> Exp m a
+      -> Exp m b
+lift1 f = lift . f . unlift
+
+-- |Lift a binary function into 'Exp'.
+--
+lift2 :: (HasExp m a, HasExp m b, HasExp m c, Lift m c, Unlift m a, Unlift m b)
+      => (a -> b -> c)
+      -> Exp m a
+      -> Exp m b
+      -> Exp m c
+lift2 f x y = lift $ f (unlift x) (unlift y)
 
 type Message = String
 
@@ -520,8 +535,6 @@ data SomeDimensionIx where
 deriving instance Show SomeDimensionIx
 instance Eq SomeDimensionIx where (==) = (==) `on` show
 
-
-class (Monad m, Monad m') => Hoistable m m' where hoist :: m' a -> m a
 
 class ( HasFingerprint (ContourSettings m a)
       , Default (ContourSettings m a)
@@ -664,10 +677,11 @@ type IsConst dim a =
   , Show dim
   )
 
-data family Loader (m :: * -> *) t crs dim a :: *
+data family Loader  (m :: * -> *) t crs dim a :: *
+
+type family Dataset (m :: * -> *) t crs     a = ds | ds -> m t crs a
 
 class IsVariable m t crs dim a => HasLoad m t crs dim a where
-  type Dataset   m t crs     a :: *
   load
     :: Loader m t crs dim a
     -> DimensionIx dim
@@ -768,9 +782,6 @@ prettyAST = go maxDepth where
   go !n (AdaptDim dim _ s2) =
     withBullet "AdaptDim" <+> text (show dim) $$
       nextVar (goN n s2)
-  go !n (Hoist w) =
-    withBullet "Hoist" $$
-      nextVar (goN n w)
   go !n (MapReduce _ _ _ _ v) =
     withBullet "MapReduce" $$
       nextVar (goN n v)
@@ -819,7 +830,6 @@ instance HasDescription (Variable m t crs dim a) where
   description (Sample _ v w) = description w <> " sampled over " <> description v
   description (Aggregate _ v w) = description w <> " aggregated over " <> description v
   description (AdaptDim d _ w) = description w <> " adapted to " <> fromString (show d)
-  description (Hoist w)        = description w <> "(hoisted)"
   description (FoldDim _ _ w) = "FoldDim over " <> description w
   description (MapReduce _ _ _ _ w) = "MapReduce over " <> description w
   description (Describe v _) = v
@@ -847,7 +857,6 @@ instance HasDimension (Variable m t crs dim a) dim where
   dimension (Rasterize _ v)          = dimension v
   dimension (Sample _ _ v)           = dimension v
   dimension (Aggregate _ _ v)        = dimension v
-  dimension (Hoist w)                = dimension w
   dimension (AdaptDim d _ _)         = d
   dimension (FoldDim _ _ v)          = dimension v
   dimension (MapReduce _ _ _ _ v)    = dimension v
@@ -879,8 +888,6 @@ instance MonadError LoadError m
   -- La de una funcion del indice dimensional es funcion de su resultado
   -- (Asumimos que se calcula muy rapido)
   calculateFingerprint (DimensionDependant f _)   = return . fingerprint . f
-
-  calculateFingerprint (Hoist a) = hoist . calculateFingerprint a
 
   -- La huella de una alternativa es la de la primera opcion si
   -- se puede cargar o si no la de la segunda.

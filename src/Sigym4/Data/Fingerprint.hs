@@ -38,6 +38,9 @@ instance HasFingerprint (WithFingerprint a) where
 instance HasFingerprint Fingerprint where
   fingerprint = id
 
+instance HasFingerprint BS.ByteString where
+  fingerprint = FP . hash
+
 instance Monoid Fingerprint where
   mempty = FP (hashFinalize hashInit)
   mappend (FP a) (FP b) = FP . hashFinalize $ hashUpdates hashInit [a, b]

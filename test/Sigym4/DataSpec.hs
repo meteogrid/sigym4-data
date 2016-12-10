@@ -193,8 +193,12 @@ type DummyRasterInput = AST.Loader DummyInterpreter RasterT
 
 instance IsVariable DummyInterpreter RasterT crs dim a
   => AST.HasLoad DummyInterpreter RasterT crs dim a where
-  type Dataset DummyInterpreter RasterT crs a = DummyBand crs a
   load = rLoad
+
+data DummyBand crs a = DummyBand
+    { dummyDescription :: Description
+    }
+type instance AST.Dataset DummyInterpreter RasterT crs a = DummyBand crs a
 
 instance AST.HasCalculateFingerprint DummyInterpreter dim (DummyRasterInput crs dim a) where
   calculateFingerprint = rFingerprint
@@ -204,16 +208,12 @@ instance HasDimension (DummyRasterInput crs dim a) dim where dimension = rDimens
 instance AST.HasDescription (DummyRasterInput crs dim a) where
   description = rDescription
 
-data DummyBand crs a = DummyBand
-  { dummyDescription :: Description
-  }
 
 instance AST.HasExp DummyInterpreter a where
   newtype Exp DummyInterpreter a = DummyExp (Identity a)
     deriving (Eq, Ord, Num, Show)
   lift = DummyExp . pure
-  lift1 f (DummyExp a) = DummyExp (fmap f a)
-  lift2 f (DummyExp a) (DummyExp b) = DummyExp (liftA2 f a b)
+  unlift (DummyExp a) = runIdentity a
   
 
 instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a where

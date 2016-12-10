@@ -316,7 +316,6 @@ getMissingInputs = go 100 [] where
   go !n z (Sample    _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
   go !n z (Aggregate _ v w) ix = go (n-1) z v ix >>= \z' -> go (n-1) z' w ix
 
-  go !n z (Hoist w)           ix = hoist (go (n-1) z w ix)
   go !n z ad@(AdaptDim d f v) ix =
     case f ix of
       [] -> -- Si no hay adaptacion razonable de dimensiones marcamos el
