@@ -459,29 +459,40 @@ data LoadError
   -- algun operario/proceso haga algo (eg: reemplazar la entrada por una
   -- buena, volver a intentar descargar un fichero, etc...)
   --
-  -- *NO* se debe meter a mano un fichero constante o algo similar.
-  -- Lo correcto es explicitamente reflejarlo en el sistema modificando
-  -- la variable para devolver la constante (o alternativa, ...)
-  -- cuando el indice dimensional este en la "lista negra".
+  -- *NO* se debe meter a mano un fichero constante o algo similar sino
+  -- reflejarlo explicitamente en el sistema y no contaminar los datos.
+  --
+  --
+  -- Para ello se puede insertar una alternativa filtrada por indice
+  -- dimensional que se pruebe antes. Esta puede ser una constante,
+  -- o la media de los ultimos 7 años para el dia en cuestion, hacer una
+  -- interpolacion (lineal, splines,...)  entre los vecinos, etc...
   --
   -- Por ejemplo:
   --
   -- >>> import qualified Sigym4.Data as D
-  -- >>> let rota = undefined -- la variable con "agujeros" que queremos tapar
-  --         -- Inserta una alternativa que probara
-  --         arreglada = adaptDim (dimension rota) arreglador (D.const 0)
-  --                :<|> rota
-  --         arreglador _ ix
-  --           -- Si el indice pertenece a la lista negra decimos que es
-  --           -- valido para que se use la constante, si no decimos que
-  --           -- no hay adaptacion posible para que se use la variable
-  --           -- que arreglamos
-  --           | ix `elem` listaNegra = [ix]
-  --           | otherwise            = []
-  --        listaNegra = [...]
+  -- >>> let rota = ... -- la variable con "agujeros" que queremos tapar
+  --         -- Crea una bifurcacion (':<|>') filtrada por 'adaptDim'.
+  --         -- Si el indice pertenece a la lista negra decimos que es
+  --         -- valido devolviendo una lista de un elemento con el indice para
+  --         -- que se use la alternativa, sino decimos que
+  --         -- no hay adaptacion posible devolviendo una lista vacia
+  --         -- para que se use 'rota'
+  --         buena = adaptDim (dimension rota)
+  --                          (\i -> if i `elem` listaNegra then [i] else [])
+  --                          alternativa
+  --            :<|> rota
+  --         alternativa = D.const (dimension rota) 0
+  --         -- alternativa = mediaAnual (-7) rota
+  --         -- alternativa = interpolaHuecosDimensionales (Splines 3 2) rota
+  --         -- etc...
+  --         listaNegra = [ datetime 2016 11 24 18 0
+  --                      , datetime 2014 2  21 0  0
+  --                      ...
+  --                      ]
   | Corrupt         Message
 
-  -- | La entrada no se puede cargar por algun problema transitorio
+  -- | La variable no se puede generar/cargar por algun problema transitorio
   -- (eg: problema de conectividad con servicios remotos, sobrecarga
   -- en el sistema, etc...)
   --
@@ -492,17 +503,18 @@ data LoadError
   -- | Hay algun problema interno que el interprete esperaba.
   --
   -- El interprete es libre de cachear esta informacion y no volver
-  -- a intentar cargar esta variable hasta que algun operrario/proceso
+  -- a intentar generar esta variable hasta que algun operrario/proceso
   -- lo arregle
   | InternalError   Message
 
   -- | Alguna adaptacion de dimension ha devuelto una lista vacia.
-  -- Esto es semanticamente lo mismo que 'NotAvailable' pero devolvemos
+  -- Esto es operativamente lo mismo que 'NotAvailable' pero devolvemos
   -- esto para dar mas informacion al usuario.
   | DimAdaptError
 
-  -- | Alguna excepcion que no hemos sabido gestionar. El interprete es
-  -- libre de hacer lo que quiera (probablemente sea su culpa)
+  -- | Alguna excepcion que no hemos sabido gestionar. El interprete
+  -- probablemente no vuelva a intentar generar la variable hasta que
+  -- algun operario/proceso haga algo.
   | LoadException   SomeException
 
   -- | Se ha sobrepasado la altura maxima del grafo de generacion
@@ -522,7 +534,7 @@ instance NFData LoadError where
 
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "Cannot use 'fingerprint' on Variables. Use " ':$$:
-               'Text "'getFingerprint' instead")
+               'Text "'calculateFingerprint' instead")
   ) => HasFingerprint (Variable m t crs dim a) where
   fingerprint = error "unreachable"
 
