@@ -17,9 +17,6 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Sigym4.Data
-                     , Sigym4.Data.Units
-                     , Sigym4.Data.Null
-                     , Sigym4.Data.Maybe
                      , Sigym4.Data.AST
                      , Sigym4.Data.Generic
                      , Sigym4.Data.Fingerprint
@@ -34,8 +31,6 @@ library
     , vector
     , text
     , data-default
-    , dimensional
-    , dimensional-parsers
     , newtype
     , cryptonite
     , cryptonite-conduit

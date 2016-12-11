@@ -16,8 +16,6 @@ module Sigym4.DataSpec ( spec, main ) where
 import           Sigym4.Data hiding (describe, map, const)
 import qualified Sigym4.Data as D
 import qualified Sigym4.Data.AST as AST
-import           Sigym4.Data.Units
-import           Sigym4.Data.Null
 
 import           Control.Applicative
 import           Control.Monad.Trans.Either
@@ -38,13 +36,6 @@ newtype Temperature = Temperature Double
     ( Eq, Ord, Show, Num
     , RealFrac, Real, Fractional, Floating, RealFloat, Storable)
 
-instance HasNull Temperature where nullValue = (-9999)
-  
-
-
-instance HasUnits Temperature Identity where
-  type Units Temperature = ()
-  type MachineType Temperature = Double
 
 spec :: Spec
 spec = do

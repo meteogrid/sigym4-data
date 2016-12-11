@@ -112,7 +112,6 @@ module Sigym4.Data (
 
 -- * Modulos re-exportados
 , module Sigym4.Data.Fingerprint
-, module Sigym4.Data.Units
 , module Sigym4.Dimension
 , module Sigym4.Dimension.CronSchedule
 , module Sigym4.Geometry
@@ -120,7 +119,6 @@ module Sigym4.Data (
 ) where
 
 import Sigym4.Data.Generic
-import Sigym4.Data.Units
 import Sigym4.Data.Fingerprint
 import Sigym4.Data.AST
 
