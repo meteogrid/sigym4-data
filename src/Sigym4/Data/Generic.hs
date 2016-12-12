@@ -6,7 +6,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -119,7 +118,7 @@ contour = Contour
 --   use el algoritmo de resampleo por defecto (vecino mas cercano)
 --   para adaptar distintas resoluciones.
 warp
-  :: CanWarp m t crs crs' dim a
+  :: (Warpable m t a, CanWarp m t crs crs' dim a)
   => WarpSettings m t          a
   -> Variable     m t crs' dim a
   -> Variable     m t crs  dim a

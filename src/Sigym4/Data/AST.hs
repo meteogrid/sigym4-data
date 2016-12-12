@@ -15,7 +15,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QuasiQuotes #-}
 module Sigym4.Data.AST where
@@ -37,7 +36,6 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Storable as St
-import           GHC.TypeLits
 import           GHC.Exts (Constraint)
 import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
@@ -136,7 +134,7 @@ data Variable
   --   use el algoritmo de resampleo por defecto (vecino mas cercano)
   --   para adaptar distintas resoluciones.
   Warp
-    :: CanWarp m t crs crs' dim a
+    :: (Warpable m t a, CanWarp m t crs crs' dim a)
     => WarpSettings m t          a
     -> Variable     m t crs' dim a
     -> Variable     m t crs  dim a
@@ -284,11 +282,12 @@ type IsVariable m t crs dim a  =
   , HasDescription (Variable m t crs dim a)
   , Show dim
   , Dimension dim
-  , Dependent dim ~  ()
+  , Dependent dim ~ ()
   , Show (DimensionIx dim)
   , Eq (DimensionIx dim)
   , Ord (DimensionIx dim)
   , NFData (DimensionIx dim)
+  , NFData dim
   , HasFingerprint (DimensionIx dim)
   , HasFingerprint a
   , HasExp m a
@@ -353,7 +352,7 @@ type CanAdaptDim m t crs dim' dim a =
 type CanWarp m t crs crs' dim a =
   ( KnownCrs crs
   , KnownCrs crs'
-  , Warpable m t a
+  , IsVariable m t crs  dim a
   , IsVariable m t crs' dim a
   )
 
@@ -531,12 +530,6 @@ instance NFData LoadError where
   rnf !(LoadException !_)    = () --FIXME: This doesn't evaluate SomeException to nf!
   rnf !MaxDepthExceeded      = ()
 
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "Cannot use 'fingerprint' on Variables. Use " ':$$:
-               'Text "'calculateFingerprint' instead")
-  ) => HasFingerprint (Variable m t crs dim a) where
-  fingerprint = error "unreachable"
-
 data SomeDimensionIx where
   SomeDimensionIx :: ( Show (DimensionIx dim)
                      , Show dim
@@ -557,41 +550,25 @@ class ( HasFingerprint (ContourSettings m a)
     :: ContourSettings m                 a
     -> Variable        m RasterT crs dim a
     -> Variable        m LineT   crs dim a
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "Este interprete no sabe crear contornos ")
-  , Default (ContourSettings m a)
-  , HasFingerprint (ContourSettings m a)
-  , Show (ContourSettings m a)
-  , NFData (ContourSettings m a)
-  ) => Contourable m a where
-  type ContourSettings m a = ()
-  doContour = error "unreachable"
 
 class ( HasFingerprint (WarpSettings m t a)
       , Default (WarpSettings m t a)
       , Show (WarpSettings m t a)
+      , NFData (WarpSettings m t a)
       ) => Warpable m t a where
   type WarpSettings m t a :: *
-  doWarp :: (KnownCrs crs', KnownCrs crs)
+  doWarp :: CanWarp      m t crs crs' dim a
          => WarpSettings m t          a
          -> Variable     m t crs' dim a
          -> Variable     m t crs  dim a
 
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "No hay implementacion para resamplear " ':$$:
-               'Text "este tipo de Variables")
-  , Default (WarpSettings m t a)
-  , HasFingerprint (WarpSettings m t a)
-  , Show (WarpSettings m t a)
-  ) => Warpable m t a where
-  type WarpSettings m t a = ()
-  doWarp = error "unreachable"
 
 
 
 class ( HasFingerprint (RasterizeSettings m t a)
       , Default (RasterizeSettings m t a)
       , Show (RasterizeSettings m t a)
+      , NFData (RasterizeSettings m t a)
       ) => Rasterizable m t a where
   type RasterizeSettings m t a :: *
   doRasterize :: (KnownCrs crs', KnownCrs crs)
@@ -599,21 +576,11 @@ class ( HasFingerprint (RasterizeSettings m t a)
               -> Variable          m t       crs' dim a
               -> Variable          m RasterT crs  dim a
 
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "No hay implementacion para rasterizar " ':$$:
-               'Text "este tipo de Variables")
-  , Default (RasterizeSettings m t a)
-  , HasFingerprint (RasterizeSettings m t a)
-  , Show (RasterizeSettings m t a)
-  ) => Rasterizable m t a where
-  type RasterizeSettings m t a = ()
-  doRasterize = error "unreachable"
-
-
 
 class ( HasFingerprint (GridSettings m t a)
       , Default (GridSettings m t a)
       , Show (GridSettings m t a)
+      , NFData (GridSettings m t a)
       ) => Griddable m t a where
   type GridSettings m t a :: *
   doGrid :: (KnownCrs crs', KnownCrs crs)
@@ -621,22 +588,10 @@ class ( HasFingerprint (GridSettings m t a)
          -> Variable     m t       crs' dim a
          -> Variable     m RasterT crs  dim a
 
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "No hay implementacion para interpolar " ':$$:
-               'Text "este tipo de Variables")
-  , Default (GridSettings m t a)
-  , HasFingerprint (GridSettings m t a)
-  , Show (GridSettings m t a)
-  ) => Griddable m t a where
-  type GridSettings m t a = ()
-  doGrid = error "unreachable"
-
-
-
-
 class ( HasFingerprint (SampleSettings m t a)
       , Default (SampleSettings m t a)
       , Show (SampleSettings m t a)
+      , NFData (SampleSettings m t a)
       ) => Sampleable m t a where
   type SampleSettings m t a :: *
   doSample :: (KnownCrs crs', KnownCrs crs)
@@ -645,22 +600,11 @@ class ( HasFingerprint (SampleSettings m t a)
            -> Variable       m t      crs' dim a
            -> Variable       m PointT crs  dim a
 
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "No hay implementacion para interpolar " ':$$:
-               'Text "este tipo de Variables")
-  , Default (SampleSettings m t a)
-  , HasFingerprint (SampleSettings m t a)
-  , Show (SampleSettings m t a)
-  ) => Sampleable m t a where
-  type SampleSettings m t a = ()
-  doSample = error "unreachable"
-
-
-
 
 class ( HasFingerprint (AggregateSettings m t a)
       , Default (AggregateSettings m t a)
       , Show (AggregateSettings m t a)
+      , NFData (AggregateSettings m t a)
       ) => Aggregable m t a where
   type AggregateSettings m t a :: *
   doAggregate :: (KnownCrs crs', KnownCrs crs)
@@ -668,17 +612,6 @@ class ( HasFingerprint (AggregateSettings m t a)
               -> Variable          m AreaT crs  dim any
               -> Variable          m t     crs' dim a
               -> Variable          m AreaT crs  dim a
-
-instance {-# OVERLAPPABLE #-}
-  ( TypeError ('Text "No hay implementacion para agregar  " ':$$:
-               'Text "este tipo de Variables")
-  , Default (AggregateSettings m t a)
-  , HasFingerprint (AggregateSettings m t a)
-  , Show (AggregateSettings m t a)
-  ) => Aggregable m t a where
-  type AggregateSettings m t a = ()
-  doAggregate = error "unreachable"
-
 
 type IsConst dim a =
   ( NFData a
