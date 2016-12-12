@@ -143,13 +143,6 @@ spec = do
         ]
 
 
-datetime :: Newtype t UTCTime
-         => Integer -> Int -> Int -> Int -> Int -> t
-datetime y m d h mn
-  = pack (UTCTime (fromGregorian y m d) (fromIntegral (h*60+mn)*60))
-
-
-
 newtype DummyInterpreter a = DummyInterpreter (EitherT LoadError Identity a)
   deriving (Functor, Applicative, Monad, MonadError LoadError)
 
@@ -165,7 +158,7 @@ dummyRasterInput
   -> (DimensionIx dim -> DummyInterpreter (DummyBand crs a))
   -> (DimensionIx dim -> DummyInterpreter Fingerprint)
   -> dim -> DummyRasterVar crs dim a
-dummyRasterInput desc res f d = input $ DummyRasterInput
+dummyRasterInput desc res f d = input DummyRasterInput
   { rLoad        = res
   , rFingerprint = f
   , rDimension   = d

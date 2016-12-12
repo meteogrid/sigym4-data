@@ -280,8 +280,7 @@ infixl 3 :<|>
 
 -- | Restriccion que deben satisfacer todas las 'Variable's
 type IsVariable m t crs dim a  =
-  ( Typeable (Variable m t crs dim a)
-  , Typeable m, Typeable t, Typeable crs, Typeable dim, Typeable a
+  ( Typeable t, Typeable crs, Typeable dim, Typeable a
   , HasDescription (Variable m t crs dim a)
   , Show dim
   , Dimension dim
