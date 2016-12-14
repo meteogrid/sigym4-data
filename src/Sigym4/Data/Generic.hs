@@ -64,11 +64,11 @@ module Sigym4.Data.Generic (
 ) where
 
 import           Sigym4.Data.AST as AST
-import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 
 import           Control.Monad (foldM)
 import           Control.Monad.Except (MonadError(catchError))
+import           Data.Fingerprint
 import           Data.Monoid ((<>))
 import           Prelude hiding (const, map, zipWith)
 

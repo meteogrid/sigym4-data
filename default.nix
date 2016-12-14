@@ -1,6 +1,6 @@
 { mkDerivation, base, bytestring, conduit, cryptonite
-, cryptonite-conduit, data-default, deepseq, dimensional
-, dimensional-parsers, either, hspec, ieee754, mtl, newtype, pretty
+, cryptonite-conduit, data-default, deepseq, either
+, geohs-fingerprint, hspec, ieee754, mtl, newtype, pretty
 , QuickCheck, should-not-typecheck, sigym4-dimension
 , sigym4-geometry, spatial-reference, stdenv, template-haskell
 , text, time, vector, vector-th-unbox
@@ -11,7 +11,7 @@ mkDerivation {
   src = ./.;
   libraryHaskellDepends = [
     base bytestring conduit cryptonite cryptonite-conduit data-default
-    deepseq dimensional dimensional-parsers ieee754 mtl newtype pretty
+    deepseq geohs-fingerprint ieee754 mtl newtype pretty
     sigym4-dimension sigym4-geometry spatial-reference template-haskell
     text vector
   ];

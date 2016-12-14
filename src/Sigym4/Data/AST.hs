@@ -19,7 +19,6 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Sigym4.Data.AST where
 
-import           Sigym4.Data.Fingerprint
 import           Sigym4.Dimension
 import           Sigym4.Geometry (Size, GeoReference, V2)
 import           SpatialReference
@@ -28,6 +27,7 @@ import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
 import           Control.Monad.Except (MonadError(catchError, throwError))
 import           Data.Default
+import           Data.Fingerprint
 import           Data.Function ( on )
 import           Data.Monoid ( (<>) )
 import           Data.String ( fromString )

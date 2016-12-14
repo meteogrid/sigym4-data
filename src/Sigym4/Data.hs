@@ -111,7 +111,7 @@ module Sigym4.Data (
 , MonadError (..)
 
 -- * Modulos re-exportados
-, module Sigym4.Data.Fingerprint
+, module Data.Fingerprint
 , module Sigym4.Dimension
 , module Sigym4.Dimension.CronSchedule
 , module Sigym4.Geometry
@@ -119,7 +119,6 @@ module Sigym4.Data (
 ) where
 
 import Sigym4.Data.Generic
-import Sigym4.Data.Fingerprint
 import Sigym4.Data.AST
 
 import Sigym4.Geometry
@@ -128,4 +127,5 @@ import SpatialReference
 import Sigym4.Dimension.CronSchedule
 
 import Control.Monad.Except (MonadError(..))
+import Data.Fingerprint
 import Data.Vector.Storable (Storable, Vector)

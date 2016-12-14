@@ -19,7 +19,6 @@ library
   exposed-modules:     Sigym4.Data
                      , Sigym4.Data.AST
                      , Sigym4.Data.Generic
-                     , Sigym4.Data.Fingerprint
   build-depends:
       base >=4.9 && <4.10
     , ieee754
@@ -38,6 +37,7 @@ library
     , pretty
     , template-haskell
     , mtl
+    , geohs-fingerprint
   ghc-options:      -Wall
                     -fwarn-incomplete-patterns
                     -fwarn-incomplete-uni-patterns
