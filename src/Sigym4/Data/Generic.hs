@@ -285,7 +285,7 @@ getMissingInputs = go 100 [] where
     -> DimensionIx dim
     -> m [MissingInput]
   go !n z  _  _ | n<=0 = return z
-  go !_ z (Input l) ix =
+  go !_ z l@(Input _) ix =
     (load l ix >> return z) `catchError` \e ->
       let mi = MissingInput
                (SomeDimensionIx (dimension l) ix)

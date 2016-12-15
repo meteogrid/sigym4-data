@@ -627,7 +627,7 @@ type family Dataset (m :: * -> *) t crs     a = ds | ds -> m t crs a
 
 class IsVariable m t crs dim a => HasLoad m t crs dim a where
   load
-    :: Loader m t crs dim a
+    :: Variable m t crs dim a
     -> DimensionIx dim
     -> m (Dataset m t crs a)
 

@@ -177,7 +177,7 @@ type DummyRasterInput = AST.Loader DummyInterpreter RasterT
 
 instance IsVariable DummyInterpreter RasterT crs dim a
   => AST.HasLoad DummyInterpreter RasterT crs dim a where
-  load = rLoad
+  load (AST.Input l) = rLoad l
 
 data DummyBand crs a = DummyBand
     { dummyDescription :: Description
