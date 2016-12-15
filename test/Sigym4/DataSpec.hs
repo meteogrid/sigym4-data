@@ -204,14 +204,14 @@ instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a whe
   type BlockVectorType (DummyBand crs a) DummyInterpreter = St.Vector
   readBlock = error "not implemented"
 
-instance AST.HasBlockSize (DummyBand crs a) DummyInterpreter where
-  blockSize = return . const (Size 256)
-instance AST.HasRasterSize (DummyBand crs a) DummyInterpreter where
-  rasterSize = return . const (Size 2000)
-instance AST.HasNodataValue (DummyBand crs a) DummyInterpreter a where
-  nodataValue = return . const Nothing
-instance AST.HasGeoReference (DummyBand crs a) DummyInterpreter crs where
-  geoReference = return . const gr where
+instance AST.HasBlockSize (DummyBand crs a) where
+  blockSize = const (Size 256)
+instance AST.HasRasterSize (DummyBand crs a) where
+  rasterSize = const (Size 2000)
+instance AST.HasNodataValue (DummyBand crs a) a where
+  nodataValue = const Nothing
+instance AST.HasGeoReference (DummyBand crs a) crs where
+  geoReference = const gr where
     gr = either (error "unreachable") id
        $ mkGeoReference (Extent 0 100) (Size 10)
 

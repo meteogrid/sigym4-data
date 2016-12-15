@@ -4,6 +4,7 @@ module Sigym4.Data (
 -- * Typeclasses principales
   HasCalculateFingerprint (..)
 , HasDimension (..)
+, HasLoad (..)
 -- * Tipos principales
 , Variable ((:<|>))
 -- ** Distintos tipos de geometria de una variable

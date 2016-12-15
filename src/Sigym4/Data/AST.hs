@@ -37,6 +37,7 @@ import qualified Data.Text as T
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Storable as St
 import           GHC.Exts (Constraint)
+import           GHC.Prim (RealWorld)
 import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
 
@@ -678,17 +679,17 @@ class MonadError LoadError m
 class HasDimension o dim | o->dim where
   dimension :: o -> dim
 
-class HasBlockSize b m | b -> m where
-  blockSize   :: b -> m (Size V2)
+class HasBlockSize b where
+  blockSize   :: b -> Size V2
 
-class HasNodataValue b m a | b -> m, b -> a where
-  nodataValue :: b -> m (Maybe a) 
+class HasNodataValue b a | b -> a where
+  nodataValue :: b -> Maybe a
 
-class HasRasterSize b m | b -> m where
-  rasterSize :: b -> m (Size V2)
+class HasRasterSize b  where
+  rasterSize :: b -> Size V2
 
-class HasGeoReference b m crs | b -> m, b -> crs where
-  geoReference :: b -> m (GeoReference V2 crs)
+class HasGeoReference b crs | b -> crs where
+  geoReference :: b -> GeoReference V2 crs
 
 type Description = Text
 
@@ -703,7 +704,9 @@ type BlockIndex = Size V2
 
 class IsStorableVector (BlockVectorType b m) a => HasReadBlock b m a | b -> m, b -> a where
   type BlockVectorType b m :: * -> *
-  readBlock :: b -> BlockIndex -> m (BlockVectorType b m a)
+  readBlock     :: b -> BlockIndex -> m (BlockVectorType b m a)
+
+  readBlockInto :: b -> BlockIndex -> G.Mutable (BlockVectorType b m) RealWorld a -> m ()
 
 class (St.Storable (StorableElem v a), G.Vector v a) => IsStorableVector v a where
   type StorableElem v a :: *

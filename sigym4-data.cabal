@@ -38,6 +38,7 @@ library
     , template-haskell
     , mtl
     , geohs-fingerprint
+    , ghc-prim
   ghc-options:      -Wall
                     -fwarn-incomplete-patterns
                     -fwarn-incomplete-uni-patterns
