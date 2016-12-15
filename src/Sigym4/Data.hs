@@ -25,7 +25,9 @@ module Sigym4.Data (
 
 -- *** 'warp'
 , warp
-, CanWarp
+, warpWith
+, WarpSettings (..)
+, Warpable (..)
 
 -- ** Alternativas
 

@@ -28,8 +28,10 @@ module Sigym4.Data.Generic (
 , Contourable
 , contour
 
-, CanWarp
+, Warpable (..)
+, WarpSettings (..)
 , warp
+, warpWith
 
 , CanGrid
 , grid
@@ -70,6 +72,7 @@ import           Control.Monad (foldM)
 import           Control.Monad.Except (MonadError(catchError))
 import           Data.Fingerprint
 import           Data.Monoid ((<>))
+import           Data.Default (def)
 import           Prelude hiding (const, map, zipWith)
 
           
@@ -111,18 +114,30 @@ contour
   -> Variable           m LineT   crs  dim a
 contour = Contour
 
--- | Reproyecta una entrada.
+-- | Reproyecta una entrada con ajustes por defecto
 --
 --   Tambien sirve para especificar un algoritmo de resampleo entre
 --   rasters del mismo sistema de referencia si no se quiere que se
 --   use el algoritmo de resampleo por defecto (vecino mas cercano)
 --   para adaptar distintas resoluciones.
 warp
-  :: (Warpable m t a, CanWarp m t crs crs' dim a)
-  => WarpSettings m t          a
+  :: Warpable m t crs crs' a
+  => Variable     m t crs' dim a
+  -> Variable     m t crs  dim a
+warp = warpWith def
+
+-- | Reproyecta una entrada.
+--
+--   Tambien sirve para especificar un algoritmo de resampleo entre
+--   rasters del mismo sistema de referencia si no se quiere que se
+--   use el algoritmo de resampleo por defecto (vecino mas cercano)
+--   para adaptar distintas resoluciones.
+warpWith
+  :: Warpable m t crs crs' a
+  => WarpSettings crs
   -> Variable     m t crs' dim a
   -> Variable     m t crs  dim a
-warp = Warp
+warpWith = Warp
   
 -- | Interpola una variable de punto y produce una de raster.
 --

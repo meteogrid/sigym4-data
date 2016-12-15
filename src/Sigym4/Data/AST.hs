@@ -20,7 +20,7 @@
 module Sigym4.Data.AST where
 
 import           Sigym4.Dimension
-import           Sigym4.Geometry (Size, GeoReference, V2)
+import           Sigym4.Geometry (Size(..), GeoReference(..), GeoTransform(..), V2(..))
 import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
@@ -134,8 +134,8 @@ data Variable
   --   use el algoritmo de resampleo por defecto (vecino mas cercano)
   --   para adaptar distintas resoluciones.
   Warp
-    :: (Warpable m t a, CanWarp m t crs crs' dim a)
-    => WarpSettings m t          a
+    :: Warpable     m t crs crs' a
+    => WarpSettings     crs
     -> Variable     m t crs' dim a
     -> Variable     m t crs  dim a
 
@@ -347,14 +347,6 @@ type CanAdaptDim m t crs dim' dim a =
   , IsVariable m t crs dim' a
   )
 
--- | Restriccion que deben satisfacer las 'Variable's que podemos
---   reproyectar (o resamplear) a otro sistema de coordenadas (o resolucion)
-type CanWarp m t crs crs' dim a =
-  ( KnownCrs crs
-  , KnownCrs crs'
-  , IsVariable m t crs  dim a
-  , IsVariable m t crs' dim a
-  )
 
 -- | Restriccion que deben satisfacer las 'Variable's que podemos
 --   interpolar a una rejilla
@@ -551,18 +543,55 @@ class ( HasFingerprint (ContourSettings m a)
     -> Variable        m RasterT crs dim a
     -> Variable        m LineT   crs dim a
 
-class ( HasFingerprint (WarpSettings m t a)
-      , Default (WarpSettings m t a)
-      , Show (WarpSettings m t a)
-      , NFData (WarpSettings m t a)
-      ) => Warpable m t a where
-  type WarpSettings m t a :: *
-  doWarp :: CanWarp      m t crs crs' dim a
-         => WarpSettings m t          a
+class Typeable crs' => Warpable m t crs crs' a where
+  doWarp :: WarpSettings     crs
          -> Variable     m t crs' dim a
          -> Variable     m t crs  dim a
 
 
+data WarpSettings crs = WarpSettings
+  { warpSettingsGeoReference :: Maybe (GeoReference V2 crs)
+  , warpSettingsAlgorithm    :: ResampleAlgorithm
+  } deriving Show
+
+instance Default (WarpSettings crs) where
+  def = WarpSettings
+    { warpSettingsGeoReference = Nothing
+    , warpSettingsAlgorithm    = def
+    }
+
+instance HasFingerprint (WarpSettings crs) where
+  fingerprint (WarpSettings (Just a) b) = fingerprint a <> fingerprint b
+  fingerprint (WarpSettings Nothing b)  = fingerprint b
+
+instance HasFingerprint (GeoReference V2 crs) where
+  fingerprint (GeoReference (GeoTransform (V2 (V2 dx xrot)
+                                              (V2 yrot dy))
+                            (V2 x0 y0)) (Size (V2 nx ny)))
+    = mconcat [ fingerprint x0
+              , fingerprint dx
+              , fingerprint xrot
+              , fingerprint y0
+              , fingerprint yrot
+              , fingerprint dy
+              , fingerprint nx
+              , fingerprint ny
+              ]
+  
+
+instance NFData (WarpSettings crs) where
+  rnf (WarpSettings a b ) = seq (rnf a) (rnf b)
+
+data ResampleAlgorithm
+  = NearestNeighbor
+  | Bilinear
+  | Cubic
+  deriving (Eq, Show, Enum, Bounded)
+
+instance HasFingerprint ResampleAlgorithm where fingerprint = fingerprint . fromEnum
+
+instance NFData ResampleAlgorithm where rnf !_ = ()
+instance Default ResampleAlgorithm where def = NearestNeighbor
 
 
 class ( HasFingerprint (RasterizeSettings m t a)
