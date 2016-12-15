@@ -134,7 +134,7 @@ data Variable
   --   use el algoritmo de resampleo por defecto (vecino mas cercano)
   --   para adaptar distintas resoluciones.
   Warp
-    :: Warpable     m t crs crs' a
+    :: Warpable     m t crs crs' dim a
     => WarpSettings     crs
     -> Variable     m t crs' dim a
     -> Variable     m t crs  dim a
@@ -543,7 +543,9 @@ class ( HasFingerprint (ContourSettings m a)
     -> Variable        m RasterT crs dim a
     -> Variable        m LineT   crs dim a
 
-class Typeable crs' => Warpable m t crs crs' a where
+class ( IsVariable m t crs  dim a
+      , IsVariable m t crs' dim a
+      ) => Warpable m t crs crs' dim a where
   doWarp :: WarpSettings     crs
          -> Variable     m t crs' dim a
          -> Variable     m t crs  dim a
