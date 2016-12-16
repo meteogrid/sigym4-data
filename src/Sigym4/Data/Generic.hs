@@ -121,7 +121,9 @@ contour = Contour
 --   use el algoritmo de resampleo por defecto (vecino mas cercano)
 --   para adaptar distintas resoluciones.
 warp
-  :: Warpable m t crs crs' dim a
+  :: ( Warpable m t crs crs' dim a
+     , CanWarp m t crs crs' dim a
+     )
   => Variable     m t crs' dim a
   -> Variable     m t crs  dim a
 warp = warpWith def
@@ -133,7 +135,9 @@ warp = warpWith def
 --   use el algoritmo de resampleo por defecto (vecino mas cercano)
 --   para adaptar distintas resoluciones.
 warpWith
-  :: Warpable m t crs crs' dim a
+  :: ( Warpable m t crs crs' dim a
+     , CanWarp m t crs crs' dim a
+     )
   => WarpSettings crs
   -> Variable     m t crs' dim a
   -> Variable     m t crs  dim a
