@@ -17,9 +17,6 @@ import           Sigym4.Data hiding (describe, map, const)
 import qualified Sigym4.Data as D
 import qualified Sigym4.Data.AST as AST
 
-import           Control.Applicative
-import           Control.Monad.Trans.Either
-import           Control.Newtype
 import           Data.Functor.Identity
 import           Data.List (isInfixOf)
 import qualified Data.Vector.Storable as St
@@ -143,13 +140,9 @@ spec = do
         ]
 
 
-newtype DummyInterpreter a = DummyInterpreter (EitherT LoadError Identity a)
+newtype DummyInterpreter a = DummyInterpreter { runDummy :: Either LoadError a }
   deriving (Functor, Applicative, Monad, MonadError LoadError)
 
-runDummy :: DummyInterpreter a -> Either LoadError a
-runDummy (DummyInterpreter a) = runIdentity (runEitherT a)
-
-type DummyVar = Variable DummyInterpreter 
 type DummyRasterVar = Variable DummyInterpreter RasterT
 
 dummyRasterInput
@@ -199,21 +192,6 @@ instance AST.HasExp DummyInterpreter a where
   lift = DummyExp . pure
   unlift (DummyExp a) = runIdentity a
   
-
-instance Storable a => AST.HasReadBlock (DummyBand crs a) DummyInterpreter a where
-  type BlockVectorType (DummyBand crs a) DummyInterpreter = St.Vector
-  readBlock = error "not implemented"
-
-instance AST.HasBlockSize (DummyBand crs a) where
-  blockSize = const (Size 256)
-instance AST.HasRasterSize (DummyBand crs a) where
-  rasterSize = const (Size 2000)
-instance AST.HasNodataValue (DummyBand crs a) a where
-  nodataValue = const Nothing
-instance AST.HasGeoReference (DummyBand crs a) crs where
-  geoReference = const gr where
-    gr = either (error "unreachable") id
-       $ mkGeoReference (Extent 0 100) (Size 10)
 
 instance AST.HasDescription (DummyBand crs a) where
   description = dummyDescription

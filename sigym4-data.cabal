@@ -50,12 +50,10 @@ test-suite spec
   type:             exitcode-stdio-1.0
   build-depends:    base
                   , hspec                >= 1.10.0
-                  , newtype
                   , time
                   , sigym4-data
                   , should-not-typecheck
                   , QuickCheck
-                  , either
                   , vector
                   , vector-th-unbox
   hs-source-dirs:   test

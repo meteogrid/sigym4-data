@@ -703,13 +703,11 @@ class HasSourceFingerprint m where
   sourceFingerprint :: m Fingerprint
 
 
-type BlockIndex = Size V2
+type Envelope a = V2 (V2 a)
 
-class IsStorableVector (BlockVectorType b m) a => HasReadBlock b m a | b -> m, b -> a where
+class IsStorableVector (BlockVectorType b m) a => HasReadWindow b m a | b -> m, b -> a where
   type BlockVectorType b m :: * -> *
-  readBlock     :: b -> BlockIndex -> m (BlockVectorType b m a)
-
-  readBlockInto :: b -> BlockIndex -> G.Mutable (BlockVectorType b m) RealWorld a -> m ()
+  readWindow :: b -> (Envelope Int, G.Mutable (BlockVectorType b m) RealWorld a) -> m ()
 
 class (St.Storable (StorableElem v a), G.Vector v a) => IsStorableVector v a where
   type StorableElem v a :: *
