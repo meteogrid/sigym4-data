@@ -554,16 +554,20 @@ class ( IsVariable m t crs  dim a
          -> Variable     m t crs' dim a
          -> Variable     m t crs  dim a
 
+newtype PixelSize crs = PixelSize { unPixelSize :: V2 Double}
+  deriving (Eq, Ord, Show, Num, NFData, St.Storable)
+
+instance HasFingerprint (PixelSize crs)
 
 data WarpSettings crs = WarpSettings
-  { warpSettingsGeoReference :: Maybe (GeoReference V2 crs)
-  , warpSettingsAlgorithm    :: ResampleAlgorithm
+  { warpSettingsPixelSize :: Maybe (PixelSize crs)
+  , warpSettingsAlgorithm :: ResampleAlgorithm
   } deriving Show
 
 instance Default (WarpSettings crs) where
   def = WarpSettings
-    { warpSettingsGeoReference = Nothing
-    , warpSettingsAlgorithm    = def
+    { warpSettingsPixelSize = Nothing
+    , warpSettingsAlgorithm = def
     }
 
 instance HasFingerprint (WarpSettings crs) where
