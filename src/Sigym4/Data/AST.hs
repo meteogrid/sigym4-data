@@ -555,7 +555,7 @@ class ( IsVariable m t crs  dim a
          -> Variable     m t crs  dim a
 
 newtype PixelSize crs = PixelSize { unPixelSize :: V2 Double}
-  deriving (Eq, Ord, Show, Num, NFData, St.Storable)
+  deriving (Eq, Ord, Show, Num, Fractional, Floating, NFData, St.Storable)
 
 instance HasFingerprint (PixelSize crs)
 
