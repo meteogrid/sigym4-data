@@ -24,6 +24,8 @@ library
     , ieee754
     , sigym4-dimension
     , sigym4-geometry
+    , sigym4-units
+    , linear
     , bytestring
     , spatial-reference
     , deepseq
@@ -37,6 +39,7 @@ library
     , pretty
     , template-haskell
     , mtl
+    , lens
     , geohs-fingerprint
     , ghc-prim
   ghc-options:      -Wall

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
@@ -17,18 +18,23 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Sigym4.Data.AST where
 
 import           Sigym4.Dimension
-import           Sigym4.Geometry (Size(..), GeoReference(..), GeoTransform(..), V2(..))
+import           Sigym4.Geometry ( Size(..), GeoReference(..), GeoTransform(..), V2(..)
+                                 , Extent (..))
+import           Sigym4.Units
 import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
+import           Control.Lens (makeLenses)
 import           Control.Monad.Except (MonadError(catchError, throwError))
 import           Data.Default
 import           Data.Fingerprint
 import           Data.Function ( on )
+import           Data.Maybe (catMaybes)
 import           Data.Monoid ( (<>) )
 import           Data.String ( fromString )
 import           Data.Typeable
@@ -37,6 +43,7 @@ import qualified Data.Text as T
 import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Storable as St
 import           GHC.Exts (Constraint)
+import           GHC.Float
 import           GHC.Prim (RealWorld)
 import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
@@ -279,6 +286,81 @@ data Variable
 
 infixl 3 :<|>
 
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Num (Exp m a)
+  , Num a
+  , Show a
+  ) => Num (Variable m t crs dim a) where
+  (+) = ZipWith ([fp||]((+)))
+  (-) = ZipWith ([fp||]((-)))
+  (*) = ZipWith ([fp||]((*)))
+  negate = Map ([fp||](negate))
+  abs = Map ([fp||](abs))
+  signum = Map ([fp||](signum))
+  fromInteger = unsafeConst . fromInteger
+
+unsafeConst :: IsConst dim a => a -> Variable m t crs dim a
+unsafeConst = Const (error "cannot call 'dimension' on 'Const' 'Variables', sorry")
+
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Fractional (Exp m a)
+  , Fractional a
+  , Show a
+  ) => Fractional (Variable m t crs dim a) where
+  (/) = ZipWith ([fp||]((/)))
+  recip = Map ([fp||](recip))
+  fromRational = unsafeConst . fromRational
+
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Floating a
+  , Floating (Exp m a)
+  , Show a
+  ) => Floating (Variable m t crs dim a) where
+  pi = unsafeConst pi
+  exp = Map ([fp||](exp))
+  log = Map ([fp||](log))
+  sqrt = Map ([fp||](sqrt))
+  (**) = ZipWith ([fp||](**))
+  logBase = ZipWith ([fp||](logBase))
+  sin = Map ([fp||](sin))
+  cos = Map ([fp||](cos))
+  tan = Map ([fp||](tan))
+  asin = Map ([fp||](asin))
+  acos = Map ([fp||](acos))
+  atan = Map ([fp||](atan))
+  sinh = Map ([fp||](sinh))
+  cosh = Map ([fp||](cosh))
+  tanh = Map ([fp||](tanh))
+  asinh = Map ([fp||](asinh))
+  acosh = Map ([fp||](acosh))
+  atanh = Map ([fp||](atanh))
+  log1p = Map ([fp||](log1p))
+  expm1 = Map ([fp||](expm1))
+  log1pexp = Map ([fp||](log1pexp))
+  log1mexp = Map ([fp||](log1mexp))
+
+type instance Units (Variable m t crs dim a) (Variable m t crs dim b) = Units (Exp m a) (Exp m b)
+
+instance
+  ( IsVariable m t crs dim a
+  , Interpretable m t a
+  , Interpretable m t b
+  , IsVariable m t crs dim b
+  , HasUnits (Exp m a) (Exp m b)
+  )
+  => HasUnits (Variable m t crs dim a) (Variable m t crs dim b)
+  where
+  p *~ u = Map ([fp||] (*~ u)) p
+  {-# INLINE (*~) #-}
+  p /~ u = Map ([fp||] (/~ u)) p
+  {-# INLINE (/~) #-}
+
 -- | Restriccion que deben satisfacer todas las 'Variable's
 type IsVariable m t crs dim a  =
   ( Typeable t, Typeable crs, Typeable dim, Typeable a
@@ -298,31 +380,6 @@ type IsVariable m t crs dim a  =
   , MonadError LoadError m
   )
 
-instance
-  ( IsVariable m t crs dim a
-  , Interpretable m t a
-  , Lift m a
-  , Unlift m a
-  , Num a
-  ) => Num (Variable m t crs dim a) where
-  (+) = ZipWith ([fp||](lift2 (+)))
-  (-) = ZipWith ([fp||](lift2 (-)))
-  (*) = ZipWith ([fp||](lift2 (*)))
-  negate = Map ([fp||](lift1 negate))
-  abs = Map ([fp||](lift1 abs))
-  signum = Map ([fp||](lift1 signum))
-  fromInteger = error "Variables cannot be created from numeric literals (or with fromInteger)"
-
-instance
-  ( IsVariable m t crs dim a
-  , Interpretable m t a
-  , Lift m a
-  , Unlift m a
-  , Fractional a
-  ) => Fractional (Variable m t crs dim a) where
-  (/) = ZipWith ([fp||](lift2 (/)))
-  recip = Map ([fp||](lift1 recip))
-  fromRational = error "Variables cannot be created from numeric literals (or with fromRational)"
 
 type IsInput m t crs dim a = 
   ( HasLoad                   m t crs dim a
@@ -560,19 +617,28 @@ newtype PixelSize crs = PixelSize { unPixelSize :: V2 Double}
 instance HasFingerprint (PixelSize crs)
 
 data WarpSettings crs = WarpSettings
-  { warpSettingsPixelSize :: Maybe (PixelSize crs)
-  , warpSettingsAlgorithm :: ResampleAlgorithm
+  { _pixelSize           :: Maybe (PixelSize crs)
+  , _maxExtent           :: Maybe (Extent V2 crs)
+  , _downsampleAlgorithm :: Maybe ResampleAlgorithm
+  , _upsampleAlgorithm   :: Maybe ResampleAlgorithm
   } deriving Show
 
 instance Default (WarpSettings crs) where
   def = WarpSettings
-    { warpSettingsPixelSize = Nothing
-    , warpSettingsAlgorithm = def
+    { _pixelSize           = Nothing
+    , _maxExtent           = Nothing
+    , _upsampleAlgorithm   = Nothing
+    , _downsampleAlgorithm = Nothing
     }
 
 instance HasFingerprint (WarpSettings crs) where
-  fingerprint (WarpSettings (Just a) b) = fingerprint a <> fingerprint b
-  fingerprint (WarpSettings Nothing b)  = fingerprint b
+  fingerprint (WarpSettings a b c d) =
+    mconcat . catMaybes $
+      [ fmap fingerprint a
+      , fmap fingerprint b
+      , fmap fingerprint c
+      , fmap fingerprint d
+      ]
 
 instance HasFingerprint (GeoReference V2 crs) where
   fingerprint (GeoReference (GeoTransform (V2 (V2 dx xrot)
@@ -588,14 +654,26 @@ instance HasFingerprint (GeoReference V2 crs) where
               , fingerprint ny
               ]
   
+instance St.Storable a => HasFingerprint (V2 a)
+
+instance HasFingerprint (Extent V2 crs) where
+  fingerprint (Extent lo hi) = fingerprint lo <> fingerprint hi
 
 instance NFData (WarpSettings crs) where
-  rnf (WarpSettings a b ) = seq (rnf a) (rnf b)
+  rnf (WarpSettings a b c d) = rnf a  `seq` rnf b `seq` rnf c `seq` rnf d `seq` ()
 
 data ResampleAlgorithm
   = NearestNeighbor
   | Bilinear
   | Cubic
+  | CubicSpline
+  | Average
+  | Mode
+  | Max
+  | Min
+  | Median
+  | FirstQuartile
+  | ThirdQuartile
   deriving (Eq, Show, Enum, Bounded)
 
 instance HasFingerprint ResampleAlgorithm where fingerprint = fingerprint . fromEnum
@@ -738,7 +816,7 @@ prettyAST = go maxDepth where
                   <+> parens (text (show (dimension l)))
   go !_ (DimensionDependant _ dim) =
     "DimensionDependant" <+> (text (show dim))
-  go !_ (Const d v) = "Constant" <+> text (show v) <+> parens (text (show d))
+  go !_ (Const _ v) = "Constant" <+> text (show v)
   go !n (s1 :<|> s2) =
     nextVar (goN n s1) $+$ ":<|>" $+$ nextVar (goN n s2)
   go !n (Contour s1 s2) =
@@ -943,3 +1021,5 @@ combineVarsFPWith v w o ix = do
   fv <- calculateFingerprint v ix
   fw <- combineVarFPWith w o ix
   return (mconcat [fingerprint o, fv, fw])
+
+makeLenses ''WarpSettings

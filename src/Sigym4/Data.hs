@@ -27,8 +27,14 @@ module Sigym4.Data (
 -- *** 'warp'
 , warp
 , warpWith
-, WarpSettings (..)
-, Warpable (..)
+, WarpSettings
+, pixelSize
+, maxExtent
+, upsampleAlgorithm
+, downsampleAlgorithm
+
+, Warpable
+, ResampleAlgorithm (..)
 
 -- ** Alternativas
 
@@ -109,26 +115,59 @@ module Sigym4.Data (
 , prettyAST
 
 -- * Tipos re-exportados
+, Default (def)
 , Storable
 , Vector
 , MonadError (..)
 
--- * Modulos re-exportados
+-- * Re-exports
 , module Data.Fingerprint
 , module Sigym4.Dimension
 , module Sigym4.Dimension.CronSchedule
 , module Sigym4.Geometry
 , module SpatialReference
+, module Control.Lens
+, module V1
+, module V2
+, module V3
+, module V4
+, module VN
+, module Linear.Epsilon
 ) where
 
 import Sigym4.Data.Generic
 import Sigym4.Data.AST
 
-import Sigym4.Geometry
+import Sigym4.Geometry (
+    Vertex
+  , SqMatrix
+  , Point (..)
+  , Pixel (..)
+  , Size (..)
+  , Offset (..)
+  , Extent (..)
+  , GeoTransform (..)
+  , GeoReference (..)
+  , mkGeoReference
+  , grScalarSize
+  , scalarSize
+  , grForward
+  , grBackward
+  , eSize
+  , HasVertex (..)
+  )
 import Sigym4.Dimension hiding (Dim)
-import SpatialReference
 import Sigym4.Dimension.CronSchedule
+import SpatialReference
 
 import Control.Monad.Except (MonadError(..))
+import Control.Lens hiding (Const, (*~))
+import Data.Default
 import Data.Fingerprint
 import Data.Vector.Storable (Storable, Vector)
+import Linear.V1 as V1
+import Linear.V2 as V2
+import Linear.V3 as V3
+import Linear.V4 as V4 hiding (vector, point)
+import Linear.V as VN
+import Linear.Epsilon
