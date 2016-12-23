@@ -503,7 +503,7 @@ type Message = String
 data LoadError
 
   -- | La entrada aun no esta disponible, no hay nada que hacer...
-  = NotAvailable
+  = NotAvailable Message
 
   -- | La entrada esta corrupta. El interprete es libre cachear este
   -- hecho y no volver a intentar generar la 'Variable' hasta que
@@ -575,7 +575,7 @@ data LoadError
   deriving Show
 
 instance NFData LoadError where
-  rnf !NotAvailable          = ()
+  rnf !(NotAvailable msg)    = rnf msg
   rnf !(Corrupt msg)         = rnf msg
   rnf !(TransitoryError msg) = rnf msg
   rnf !(InternalError msg)   = rnf msg

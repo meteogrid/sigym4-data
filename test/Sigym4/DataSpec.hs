@@ -39,8 +39,8 @@ spec = do
   describe "prettyAST" $ do
     let v :: DummyRasterVar (Epsg 23030) Observation Temperature
         v = dummyRasterInput "dummy"
-              (const (throwError NotAvailable))
-              (const (throwError NotAvailable))
+              (const (throwError (NotAvailable "")))
+              (const (throwError (NotAvailable "")))
               (Schedule [cron|0 0 * * *|])
 
     it "shows description" $ do
@@ -73,14 +73,14 @@ spec = do
   describe "adaptDim" $ do
     let tObs :: DummyRasterVar (Epsg 23030) Observation Temperature
         tObs = dummyRasterInput "temperatura observada"
-              (const (throwError NotAvailable))
-              (const (throwError NotAvailable))
+              (const (throwError (NotAvailable "")))
+              (const (throwError (NotAvailable "")))
               (Schedule [cron|0 * * * *|])
 
         tPred :: DummyRasterVar (Epsg 23030) Prediction Temperature
         tPred = dummyRasterInput "temperatura inventada"
-              (const (throwError NotAvailable))
-              (const (throwError NotAvailable))
+              (const (throwError (NotAvailable "")))
+              (const (throwError (NotAvailable "")))
               ([0,60..24*60] :* Schedule [cron|0 0 * * *|])
 
         sqErr = [fp|version1|] $ \o p -> o*o - p*p
@@ -127,7 +127,7 @@ spec = do
     it "marks failed adaptation as missing input" $ do
       let tPredGood = dummyRasterInput "temperatura inventada"
                 (const (return undefined))
-                (const (throwError NotAvailable))
+                (const (throwError (NotAvailable "")))
                 ([0,60..24*60] :* Schedule [cron|0 0 * * *|])
           tObsBad = adaptDim (dimension tPred) badAdaptor tObs
             where badAdaptor = const []
