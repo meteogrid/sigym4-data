@@ -35,6 +35,8 @@ module Sigym4.Data (
 
 , Warpable
 , ResampleAlgorithm (..)
+, Up
+, Down
 
 -- ** Alternativas
 

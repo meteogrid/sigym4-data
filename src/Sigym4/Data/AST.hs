@@ -378,6 +378,7 @@ type IsVariable m t crs dim a  =
   , HasExp m a
   , NFData a
   , MonadError LoadError m
+  , HasInterpreterFingerprint m
   )
 
 
@@ -619,8 +620,8 @@ instance HasFingerprint (PixelSize crs)
 data WarpSettings crs = WarpSettings
   { _pixelSize           :: Maybe (PixelSize crs)
   , _maxExtent           :: Maybe (Extent V2 crs)
-  , _downsampleAlgorithm :: Maybe ResampleAlgorithm
-  , _upsampleAlgorithm   :: Maybe ResampleAlgorithm
+  , _downsampleAlgorithm :: Maybe (ResampleAlgorithm Down)
+  , _upsampleAlgorithm   :: Maybe (ResampleAlgorithm Up)
   } deriving Show
 
 instance Default (WarpSettings crs) where
@@ -662,24 +663,42 @@ instance HasFingerprint (Extent V2 crs) where
 instance NFData (WarpSettings crs) where
   rnf (WarpSettings a b c d) = rnf a  `seq` rnf b `seq` rnf c `seq` rnf d `seq` ()
 
-data ResampleAlgorithm
-  = NearestNeighbor
-  | Bilinear
-  | Cubic
-  | CubicSpline
-  | Average
-  | Mode
-  | Max
-  | Min
-  | Median
-  | FirstQuartile
-  | ThirdQuartile
-  deriving (Eq, Show, Enum, Bounded)
+data UpOrDown = Up | Down deriving (Enum, Eq, Ord, Bounded, Show)
 
-instance HasFingerprint ResampleAlgorithm where fingerprint = fingerprint . fromEnum
+type Up   = 'Up
+type Down = 'Down
 
-instance NFData ResampleAlgorithm where rnf !_ = ()
-instance Default ResampleAlgorithm where def = NearestNeighbor
+data ResampleAlgorithm (t :: UpOrDown) where
+  NearestNeighbor :: ResampleAlgorithm Down
+  Bilinear        :: ResampleAlgorithm Down
+  Cubic           :: ResampleAlgorithm Down
+  CubicSpline     :: ResampleAlgorithm Down
+  Average         :: ResampleAlgorithm Up
+  Mode            :: ResampleAlgorithm Up
+  Min             :: ResampleAlgorithm Up
+  Max             :: ResampleAlgorithm Up
+  Median          :: ResampleAlgorithm Up
+  FirstQuartile   :: ResampleAlgorithm Up
+  ThirdQuartile   :: ResampleAlgorithm Up
+
+deriving instance Show (ResampleAlgorithm t)
+
+instance HasFingerprint (ResampleAlgorithm a) where
+  fingerprint NearestNeighbor = fingerprint (0::Int)
+  fingerprint Bilinear        = fingerprint (1::Int)
+  fingerprint Cubic           = fingerprint (2::Int)
+  fingerprint CubicSpline     = fingerprint (3::Int)
+  fingerprint Average         = fingerprint (4::Int)
+  fingerprint Mode            = fingerprint (5::Int)
+  fingerprint Min             = fingerprint (6::Int)
+  fingerprint Max             = fingerprint (7::Int)
+  fingerprint Median          = fingerprint (8::Int)
+  fingerprint FirstQuartile   = fingerprint (9::Int)
+  fingerprint ThirdQuartile   = fingerprint (10::Int)
+
+instance NFData (ResampleAlgorithm a) where rnf !_ = ()
+instance Default (ResampleAlgorithm Down) where def = NearestNeighbor
+instance Default (ResampleAlgorithm Up) where def = Average
 
 
 class ( HasFingerprint (RasterizeSettings m t a)
@@ -748,7 +767,7 @@ class IsVariable m t crs dim a => HasLoad m t crs dim a where
     -> DimensionIx dim
     -> m (Dataset m t crs a)
 
-class MonadError LoadError m
+class (MonadError LoadError m, HasInterpreterFingerprint m)
   => HasCalculateFingerprint m dim a | a -> m, a -> dim where
   -- | Calcula la 'Fingerprint' de un valor de tipo 'a', para un
   -- @'DimensionIx' dim@ en un interperprete 'm'
@@ -781,25 +800,16 @@ type Description = Text
 class HasDescription b where
   description :: b -> Description
 
-class HasSourceFingerprint m where
-  sourceFingerprint :: m Fingerprint
+-- | Interpreters must be able to provide a fingerprint of themselves
+class HasInterpreterFingerprint m where
+  interpreterFingerprint :: m Fingerprint
 
 
 type Envelope a = V2 (V2 a)
 
-class IsStorableVector (BlockVectorType b m) a => HasReadWindow b m a | b -> m, b -> a where
+class G.Vector (BlockVectorType b m) a => HasReadWindow b m a | b -> m, b -> a where
   type BlockVectorType b m :: * -> *
   readWindow :: b -> (Envelope Int, G.Mutable (BlockVectorType b m) RealWorld a) -> m ()
-
-class (St.Storable (StorableElem v a), G.Vector v a) => IsStorableVector v a where
-  type StorableElem v a :: *
-  toStorable   :: v a -> St.Vector (StorableElem v a)
-  fromStorable :: St.Vector (StorableElem v a) -> v a
-
-instance St.Storable a => IsStorableVector St.Vector a where
-  type StorableElem St.Vector a = a
-  toStorable   = id
-  fromStorable = id
 
 -- | Crea un 'Doc' con el arbol de sintaxis de una variable
 prettyAST
@@ -927,7 +937,7 @@ instance HasDimension (Variable m t crs dim a) dim where
 
 
 
-instance MonadError LoadError m
+instance (HasInterpreterFingerprint m, MonadError LoadError m)
   => HasCalculateFingerprint m dim (Variable m t crs dim a) where
   -- La huella de las variables derivadas siempre se puede
   -- calcular sin calcular las variables en si
@@ -937,15 +947,15 @@ instance MonadError LoadError m
   -- de fichero corrupto, etc) o por cambios en el codigo
   -- (asumiendo que el 'Fingerprint' de las funciones envueltas con 
   -- 'WithFingerprint' se genere correctamente).
-  calculateFingerprint (Input l)  = calculateFingerprint l
+  calculateFingerprint (Input l) ix = (<>) <$> calculateFingerprint l ix <*> interpreterFingerprint
 
   -- La de una constante es la de su valor. La dimension no nos importa.
   -- (Asumimos que se calcula muy rapido)
-  calculateFingerprint (Const _ v) =  const . return $ fingerprint v
+  calculateFingerprint (Const _ v) _ = (fingerprint v <>) <$> interpreterFingerprint
 
   -- La de una funcion del indice dimensional es funcion de su resultado
   -- (Asumimos que se calcula muy rapido)
-  calculateFingerprint (DimensionDependant f _)   = return . fingerprint . f
+  calculateFingerprint (DimensionDependant f _) ix  = (fingerprint (f ix) <>) <$> interpreterFingerprint
 
   -- La huella de una alternativa es la de la primera opcion si
   -- se puede cargar o si no la de la segunda.
@@ -959,17 +969,17 @@ instance MonadError LoadError m
   --
   --  Es decir, que "se porta bien".
   --
-  calculateFingerprint (v :<|> w) = \ix ->
+  calculateFingerprint (v :<|> w) ix =
     calculateFingerprint v ix `catchError` (\_ -> calculateFingerprint w ix)
 
   -- La huella de las operaciones intrinsecas es la huella de las
   -- variables de entrada combinada con la de la de su configuracion.
-  calculateFingerprint (Contour s v)            = combineVarFPWith v s
-  calculateFingerprint (Warp s v)               = combineVarFPWith v s
-  calculateFingerprint (Grid s v)               = combineVarFPWith v s
-  calculateFingerprint (Rasterize s v)          = combineVarFPWith v s
-  calculateFingerprint (Sample s v w)           = combineVarsFPWith v w s
-  calculateFingerprint (Aggregate s v w)        = combineVarsFPWith v w s
+  calculateFingerprint (Contour s v)        ix  = combineVarFPWith v s ix
+  calculateFingerprint (Warp s v)           ix  = combineVarFPWith v s ix
+  calculateFingerprint (Grid s v)           ix  = combineVarFPWith v s ix
+  calculateFingerprint (Rasterize s v)      ix  = combineVarFPWith v s ix
+  calculateFingerprint (Sample s v w)       ix  = combineVarsFPWith v w s ix
+  calculateFingerprint (Aggregate s v w)    ix  = combineVarsFPWith v w s ix
   --
   -- La huella de una adaptacion de dimension es la huella del
   -- primer indice adaptado que devuelva huella
@@ -977,31 +987,31 @@ instance MonadError LoadError m
   -- OJO: Asume que el interprete realmente ejecuta la primera opcion
   --      valida, es decir, que "se porta bien".
   --
-  calculateFingerprint (AdaptDim _ fun v) = \ix ->
+  calculateFingerprint (AdaptDim _ fun v) ix =
     let loop (x:xs) = calculateFingerprint v x `catchError` const (loop xs)
         loop []     = throwError DimAdaptError
 
     in loop (fun ix)
 
-  calculateFingerprint (FoldDim f (ix0,z) v) = \ix ->
+  calculateFingerprint (FoldDim f (ix0,z) v) ix =
     if ix==ix0 then calculateFingerprint z ix else combineVarFPWith v f ix
 
   -- La huella de MapReduce es la la variable de entrada, las funciones
   -- map/reduce el valor inicial del acumulador y la de todos los indices
   -- dimensionales generados por el selector
-  calculateFingerprint (MapReduce m r z s v) = \ix -> do
+  calculateFingerprint (MapReduce m r z s v) ix = do
     x <- calculateFingerprint v ix
     return (mconcat (x:fingerprint m:fingerprint r:fingerprint z:map fingerprint (s ix)))
 
-  calculateFingerprint (Describe   _ v) = calculateFingerprint v
+  calculateFingerprint (Describe   _ v) ix = calculateFingerprint v ix
 
   -- La huella de la aplicaciones es la huella de la funcion combinada
   -- con la de sus entradas.
-  calculateFingerprint (Map f v)  = combineVarFPWith v f
-  calculateFingerprint (ZipWith f v w) = combineVarsFPWith v w f
+  calculateFingerprint (Map f v)       ix = combineVarFPWith v f ix
+  calculateFingerprint (ZipWith f v w) ix = combineVarsFPWith v w f ix
 
 combineVarFPWith
-  :: (HasFingerprint o, MonadError LoadError m)
+  :: (HasFingerprint o, MonadError LoadError m, HasInterpreterFingerprint m)
   => Variable m t crs dim a
   -> o
   -> DimensionIx dim
@@ -1011,7 +1021,7 @@ combineVarFPWith v o ix = do
   return (fv <> fingerprint o)
 
 combineVarsFPWith
-  :: (HasFingerprint o, MonadError LoadError m)
+  :: (HasFingerprint o, MonadError LoadError m, HasInterpreterFingerprint m)
   => Variable m t crs dim a
   -> Variable m t' crs' dim a'
   -> o
