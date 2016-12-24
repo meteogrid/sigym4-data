@@ -42,6 +42,7 @@ library
     , lens
     , geohs-fingerprint
     , ghc-prim
+    , accelerate
   ghc-options:      -Wall
                     -fwarn-incomplete-patterns
                     -fwarn-incomplete-uni-patterns

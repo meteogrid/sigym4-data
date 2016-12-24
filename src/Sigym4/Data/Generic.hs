@@ -70,6 +70,7 @@ import           Sigym4.Dimension
 
 import           Control.Monad (foldM)
 import           Control.Monad.Except (MonadError(catchError))
+import           Data.Array.Accelerate (Exp)
 import           Data.Fingerprint
 import           Data.Monoid ((<>))
 import           Data.Default (def)
@@ -210,7 +211,7 @@ map
      , Interpretable m t a
      , Interpretable m t b
      )
-  => WithFingerprint (Exp m b -> Exp m a)
+  => WithFingerprint (Exp b -> Exp a)
   -> Variable m t crs dim b
   -> Variable m t crs dim a
 map = Map
@@ -223,7 +224,7 @@ zipWith
      , Interpretable m t b
      , Interpretable m t c
      )
-  => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
+  => WithFingerprint (Exp b -> Exp c -> Exp a)
   -> Variable m t crs dim b
   -> Variable m t crs dim c
   -> Variable m t crs dim a
@@ -240,7 +241,7 @@ foldDim
      , Interpretable m t b
      , IsVariable m t crs dim b
      )
-  => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+  => WithFingerprint (Exp a -> Exp b -> Exp a)
   -> (DimensionIx dim, Variable m t crs dim a)
   -> Variable m t crs dim b
   -> Variable m t crs dim a
@@ -264,8 +265,8 @@ mapReduce
      , IsVariable m t crs dim a
      , IsVariable m t crs dim b
      )
-  => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
-  -> WithFingerprint (Exp m a -> Exp m a -> Exp m a)
+  => WithFingerprint (Exp a -> Exp b -> Exp a)
+  -> WithFingerprint (Exp a -> Exp a -> Exp a)
   -> a
   -> (DimensionIx dim -> [DimensionIx dim])
   -> Variable m t crs dim b

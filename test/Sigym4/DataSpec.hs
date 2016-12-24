@@ -185,13 +185,5 @@ instance HasDimension (DummyRasterInput crs dim a) dim where dimension = rDimens
 instance AST.HasDescription (DummyRasterInput crs dim a) where
   description = rDescription
 
-
-instance AST.HasExp DummyInterpreter a where
-  newtype Exp DummyInterpreter a = DummyExp (Identity a)
-    deriving (Eq, Ord, Num, Show)
-  lift = DummyExp . pure
-  unlift (DummyExp a) = runIdentity a
-  
-
 instance AST.HasDescription (DummyBand crs a) where
   description = dummyDescription

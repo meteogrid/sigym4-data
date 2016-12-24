@@ -31,6 +31,7 @@ import           Control.DeepSeq (NFData(rnf))
 import           Control.Exception (SomeException)
 import           Control.Lens (makeLenses)
 import           Control.Monad.Except (MonadError(catchError, throwError))
+import           Data.Array.Accelerate (Exp)
 import           Data.Default
 import           Data.Fingerprint
 import           Data.Function ( on )
@@ -231,7 +232,7 @@ data Variable
        , Interpretable m t b
        , IsVariable m t crs dim b
        )
-    => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
+    => WithFingerprint (Exp a -> Exp b -> Exp a)
     -> (DimensionIx dim, Variable m t crs dim a)
     -> Variable m t crs dim b
     -> Variable m t crs dim a
@@ -254,8 +255,8 @@ data Variable
        , IsVariable m t crs dim a
        , IsVariable m t crs dim b
        )
-    => WithFingerprint (Exp m a -> Exp m b -> Exp m a)
-    -> WithFingerprint (Exp m a -> Exp m a -> Exp m a)
+    => WithFingerprint (Exp a -> Exp b -> Exp a)
+    -> WithFingerprint (Exp a -> Exp a -> Exp a)
     -> a
     -> (DimensionIx dim -> [DimensionIx dim])
     -> Variable m t crs dim b
@@ -268,7 +269,7 @@ data Variable
        , Interpretable m t b
        , IsVariable m t crs dim b
        )
-    => WithFingerprint (Exp m b -> Exp m a)
+    => WithFingerprint (Exp b -> Exp a)
     -> Variable m t crs dim b
     -> Variable m t crs dim a
 
@@ -279,7 +280,7 @@ data Variable
        , IsVariable m t crs dim b
        , IsVariable m t crs dim c
        )
-    => WithFingerprint (Exp m b -> Exp m c -> Exp m a)
+    => WithFingerprint (Exp b -> Exp c -> Exp a)
     -> Variable m t crs dim b
     -> Variable m t crs dim c
     -> Variable m t crs dim a
@@ -289,7 +290,7 @@ infixl 3 :<|>
 instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
-  , Num (Exp m a)
+  , Num (Exp a)
   , Num a
   , Show a
   ) => Num (Variable m t crs dim a) where
@@ -307,7 +308,7 @@ unsafeConst = Const (error "cannot call 'dimension' on 'Const' 'Variables', sorr
 instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
-  , Fractional (Exp m a)
+  , Fractional (Exp a)
   , Fractional a
   , Show a
   ) => Fractional (Variable m t crs dim a) where
@@ -319,7 +320,7 @@ instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
   , Floating a
-  , Floating (Exp m a)
+  , Floating (Exp a)
   , Show a
   ) => Floating (Variable m t crs dim a) where
   pi = unsafeConst pi
@@ -345,14 +346,14 @@ instance
   log1pexp = Map ([fp||](log1pexp))
   log1mexp = Map ([fp||](log1mexp))
 
-type instance Units (Variable m t crs dim a) (Variable m t crs dim b) = Units (Exp m a) (Exp m b)
+type instance Units (Variable m t crs dim a) (Variable m t crs dim b) = Units (Exp a) (Exp b)
 
 instance
   ( IsVariable m t crs dim a
   , Interpretable m t a
   , Interpretable m t b
   , IsVariable m t crs dim b
-  , HasUnits (Exp m a) (Exp m b)
+  , HasUnits (Exp a) (Exp b)
   )
   => HasUnits (Variable m t crs dim a) (Variable m t crs dim b)
   where
@@ -375,7 +376,6 @@ type IsVariable m t crs dim a  =
   , NFData dim
   , HasFingerprint (DimensionIx dim)
   , HasFingerprint a
-  , HasExp m a
   , NFData a
   , MonadError LoadError m
   , HasInterpreterFingerprint m
@@ -467,36 +467,6 @@ instance NFData dim => NFData (Variable m t crs dim a)
   rnf (Describe v1 v2) = rnf v1 `seq` rnf v2
   rnf (Map v1 v2) = rnf v1 `seq` rnf v2
   rnf (ZipWith v1 v2 v3) = rnf v1 `seq` rnf v2 `seq` rnf v3
-
-
-
-class HasExp (m :: * -> *) a where
-  type Lift m a :: Constraint
-  type Lift m a = ()
-  type Unlift m a :: Constraint
-  type Unlift m a = ()
-  data Exp m a :: *
-  lift :: Lift m a => a -> Exp m a
-  unlift :: Unlift m a => Exp m a -> a
-
---
---
--- |Lift a unary function into 'Exp'.
---
-lift1 :: (HasExp m a, HasExp m b, Lift m b, Unlift m a)
-      => (a -> b)
-      -> Exp m a
-      -> Exp m b
-lift1 f = lift . f . unlift
-
--- |Lift a binary function into 'Exp'.
---
-lift2 :: (HasExp m a, HasExp m b, HasExp m c, Lift m c, Unlift m a, Unlift m b)
-      => (a -> b -> c)
-      -> Exp m a
-      -> Exp m b
-      -> Exp m c
-lift2 f x y = lift $ f (unlift x) (unlift y)
 
 type Message = String
 
