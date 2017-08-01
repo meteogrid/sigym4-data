@@ -20,7 +20,7 @@ library
                      , Sigym4.Data.AST
                      , Sigym4.Data.Generic
   build-depends:
-      base >=4.9 && <4.10
+      base >=4.9 && <4.11
     , ieee754
     , sigym4-dimension
     , sigym4-geometry

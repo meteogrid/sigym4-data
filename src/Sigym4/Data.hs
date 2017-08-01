@@ -171,5 +171,5 @@ import Linear.V1 as V1
 import Linear.V2 as V2
 import Linear.V3 as V3
 import Linear.V4 as V4 hiding (vector, point)
-import Linear.V as VN
+import Linear.V as VN hiding (Size)
 import Linear.Epsilon
