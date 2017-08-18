@@ -24,7 +24,6 @@ module Sigym4.Data.AST where
 import           Sigym4.Dimension
 import           Sigym4.Geometry ( Size(..), GeoReference(..), GeoTransform(..), V2(..)
                                  , Extent (..))
-import           Sigym4.Units
 import           SpatialReference
 
 import           Control.DeepSeq (NFData(rnf))
@@ -45,7 +44,6 @@ import qualified Data.Vector.Generic as G
 import qualified Data.Vector.Storable as St
 import           GHC.Exts (Constraint)
 import           GHC.Float
-import           GHC.Prim (RealWorld)
 import           Text.PrettyPrint hiding ((<>))
 import           Text.Printf (printf)
 
@@ -90,9 +88,6 @@ data Variable
   -- La unica restriccion es que el tipo sea instancia de 'Dimension'
   dim
   -- 'a' es el tipo principal de la variable que dependera del dominio.
-  -- En Sigym4 intentaremos siempre usar instancias de 'HasUnits' para
-  -- disfrutar de conversion automatica de unidades compatibles y mas seguridad
-  -- el la definicion de variables vigilada por el compilador.
   a
   where
 
@@ -346,21 +341,6 @@ instance
   log1pexp = Map ([fp||](log1pexp))
   log1mexp = Map ([fp||](log1mexp))
 
-type instance Units (Variable m t crs dim a) (Variable m t crs dim b) = Units (Exp a) (Exp b)
-
-instance
-  ( IsVariable m t crs dim a
-  , Interpretable m t a
-  , Interpretable m t b
-  , IsVariable m t crs dim b
-  , HasUnits (Exp a) (Exp b)
-  )
-  => HasUnits (Variable m t crs dim a) (Variable m t crs dim b)
-  where
-  p *~ u = Map ([fp||] (*~ u)) p
-  {-# INLINE (*~) #-}
-  p /~ u = Map ([fp||] (/~ u)) p
-  {-# INLINE (/~) #-}
 
 -- | Restriccion que deben satisfacer todas las 'Variable's
 type IsVariable m t crs dim a  =
@@ -779,7 +759,7 @@ type Envelope a = V2 (V2 a)
 
 class G.Vector (BlockVectorType b m) a => HasReadWindow b m a | b -> m, b -> a where
   type BlockVectorType b m :: * -> *
-  readWindow :: b -> (Envelope Int, G.Mutable (BlockVectorType b m) RealWorld a) -> m ()
+  readWindow :: b -> Envelope Int -> m (BlockVectorType b m a)
 
 -- | Crea un 'Doc' con el arbol de sintaxis de una variable
 prettyAST

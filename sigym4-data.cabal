@@ -24,7 +24,6 @@ library
     , ieee754
     , sigym4-dimension
     , sigym4-geometry
-    , sigym4-units
     , linear
     , bytestring
     , spatial-reference
